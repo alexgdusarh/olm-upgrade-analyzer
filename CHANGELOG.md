@@ -46,6 +46,25 @@ Adds OCP cluster upgrade planning across one catalog per OCP release.
   the current directory. Missing releases are reported alongside the ones that
   were found.
 
+### Input handling
+- Cluster versions accept `x.y.z`; the patch level is ignored when selecting
+  catalogs, so `4.18.14 -> 4.20.32` resolves to the 4.18/4.19/4.20 catalogs.
+- Operator names are resolved against the catalog. Subscription names often
+  differ from the OLM package name (`openshift-mtv` for `mtv-operator`,
+  `cert-manager-operator` for `openshift-cert-manager-operator`); the vendor
+  prefix and role suffix are normalized away. Ambiguous matches are reported
+  rather than guessed, and every resolution is recorded in the notes.
+- Build and vendor version suffixes are preserved (`4.18.27-rhodf`,
+  `4.18.0-202608142236`). They are part of an operator's identity: several
+  operators publish many `4.18.0-<timestamp>` builds that would otherwise
+  collapse into a single version. Ordering falls back to the numeric core,
+  then to the suffix, so later dated builds rank higher. skipRange bounds are
+  still evaluated against the numeric core.
+- Catalog entries are matched with or without the `v` prefix, since both
+  `package.v4.18.3` and `package.4.18.3` appear in real catalogs.
+- The channel already in use is preferred when a release offers several, so an
+  operator on `stable` is never quietly moved onto `candidate`.
+
 ### Design
 - Two planning models, chosen by whether the operator's version stream is
   pinned to the OCP release.

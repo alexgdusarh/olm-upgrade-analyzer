@@ -52,26 +52,68 @@ def normalize_version(ver) -> str:
 
 
 def extract_version_from_name(full_name) -> Optional[str]:
-    """Extract a version from 'package.v4.18.3' - works for any operator."""
+    """
+    Extract a version from 'package.v4.18.3' - works for any operator.
+
+    The build or vendor suffix is preserved, because it is part of the
+    operator's identity and sometimes the only thing distinguishing two
+    builds: local-storage-operator ships several 4.18.0-<timestamp> releases
+    that would otherwise collapse into a single version.
+    """
     if not full_name:
         return None
     parts = str(full_name).split('.')
     for i, part in enumerate(parts):
+        # 'package.v4.18.3' and 'package.4.18.3' are both in use
         if part.startswith('v') and len(part) > 1 and part[1].isdigit():
-            ver = '.'.join(parts[i:])
-            if '-' in ver:
-                ver = ver.split('-')[0]
-            return normalize_version(ver)
+            return normalize_version('.'.join(parts[i:]))
+        if i > 0 and part and part[0].isdigit():
+            return normalize_version('.'.join(parts[i:]))
     return None
 
 
+def version_core(ver) -> str:
+    """The numeric part of a version, dropping any build or vendor suffix."""
+    return normalize_version(ver).split('-', 1)[0]
+
+
+def version_suffix(ver) -> str:
+    parts = normalize_version(ver).split('-', 1)
+    return parts[1] if len(parts) > 1 else ''
+
+
 def safe_parse_version(ver_str):
+    """
+    Parse the numeric core of a version.
+
+    Comparisons and skipRange bounds operate on the core: a skipRange such as
+    '>=4.18.0 <4.18.27' refers to cores, not to build suffixes. Suffixes are
+    handled separately by version_sort_key.
+    """
     try:
         if not ver_str:
             return None
-        return pkg_version.parse(normalize_version(ver_str))
+        return pkg_version.parse(version_core(ver_str))
     except Exception:
         return None
+
+
+def version_sort_key(ver):
+    """
+    Total ordering over versions, suffixes included.
+
+    Ordered by numeric core first. Within one core an unsuffixed version sorts
+    below suffixed builds, and numeric suffixes (dated builds) sort by value so
+    that a later build ranks higher.
+    """
+    core = safe_parse_version(ver)
+    if core is None:
+        return (pkg_version.parse('0'), 0, 0, '')
+    suffix = version_suffix(ver)
+    if not suffix:
+        return (core, 0, 0, '')
+    digits = re.match(r'^(\d+)', suffix)
+    return (core, 1, int(digits.group(1)) if digits else 0, suffix)
 
 
 def parse_skip_range(skip_range: str) -> Tuple[Optional[str], Optional[str]]:
@@ -281,11 +323,79 @@ def tuples_in(catalog: Dict, pkg: str) -> set:
     return out
 
 
-def release_channel(catalog: Dict, pkg: str, ocp: str) -> Optional[Tuple[str, str]]:
+def normalize_package_name(name: str) -> str:
+    """
+    Reduce a package name to a comparable form.
+
+    Subscriptions frequently carry a display name that differs from the OLM
+    package name - 'openshift-mtv' for 'mtv-operator', 'cert-manager-operator'
+    for 'openshift-cert-manager-operator'. Stripping the common vendor prefix
+    and role suffix makes those comparable without any per-operator mapping.
+    """
+    n = str(name).strip().lower().replace('_', '-')
+    for prefix in ('openshift-', 'redhat-', 'rhel-'):
+        if n.startswith(prefix):
+            n = n[len(prefix):]
+            break
+    for suffix in ('-operator', '-rhel9', '-rhel8'):
+        if n.endswith(suffix):
+            n = n[:-len(suffix)]
+            break
+    return n
+
+
+def resolve_package(catalog: Dict, name: str) -> Tuple[Optional[str], List[str]]:
+    """
+    Map an input operator name onto a package in the catalog.
+
+    Returns (resolved_name, candidates). An exact match always wins. Otherwise
+    the normalized form is matched; ambiguity is reported rather than guessed.
+    """
+    if name in catalog:
+        return name, [name]
+    target = normalize_package_name(name)
+    candidates = sorted(p for p in catalog if normalize_package_name(p) == target)
+    if len(candidates) == 1:
+        return candidates[0], candidates
+    return None, candidates
+
+
+def resolve_version(catalog: Dict, pkg: str, chan: str,
+                    version: str) -> Tuple[Optional[str], List[str]]:
+    """
+    Map an input version onto a version in a channel.
+
+    An exact match wins. Otherwise the numeric core is matched, so an installed
+    '4.18.27-rhodf' finds the catalog entry regardless of how the suffix was
+    recorded, and a bare '4.18.0' finds the dated build when only one exists.
+    """
+    versions = catalog.get(pkg, {}).get(chan, {})
+    ver = normalize_version(version)
+    if ver in versions:
+        return ver, [ver]
+    core = version_core(ver)
+    candidates = sorted((v for v in versions if version_core(v) == core),
+                        key=version_sort_key)
+    if len(candidates) == 1:
+        return candidates[0], candidates
+    if candidates:
+        # several builds share this core; the newest is the sensible reading
+        return candidates[-1], candidates
+    return None, []
+
+
+def release_channel(catalog: Dict, pkg: str, ocp: str,
+                    prefer: Optional[str] = None) -> Optional[Tuple[str, str]]:
     """
     The (channel, latest version) that a version-pinned operator should sit at
     on a given OCP release: the channel carrying that release's version stream,
     at its highest version.
+
+    The channel currently in use is preferred when it carries this release, so
+    an operator on 'stable' is never quietly moved onto 'candidate' or another
+    pre-release channel just because it holds a higher version. Operators whose
+    channel name encodes the release, such as stable-4.18, have no such channel
+    available and fall back to the highest-ranked candidate.
 
     Resolved from the data rather than by name, so any naming scheme works.
     """
@@ -294,10 +404,13 @@ def release_channel(catalog: Dict, pkg: str, ocp: str) -> Optional[Tuple[str, st
     for chan, versions in catalog.get(pkg, {}).items():
         matching = [v for v in versions if v.startswith(prefix)]
         if matching:
-            best = max(matching, key=safe_parse_version)
-            candidates.append((chan, best))
+            candidates.append((chan, max(matching, key=version_sort_key)))
     if not candidates:
         return None
+    if prefer:
+        for chan, ver in candidates:
+            if chan == prefer:
+                return (chan, ver)
     return max(candidates, key=_rank)
 
 
@@ -359,7 +472,9 @@ def _reachable_from(catalog: Dict, pkg: str, chan: str, ver: str) -> List[Tuple[
     for to_chan, versions in catalog.get(pkg, {}).items():
         for to_ver, entry in versions.items():
             to_obj = safe_parse_version(to_ver)
-            if to_obj is None or to_obj <= ver_obj:
+            if to_obj is None:
+                continue
+            if version_sort_key(to_ver) <= version_sort_key(ver):
                 continue
             skip_range = entry.get('skipRange', '') or ''
             if skip_range and version_in_skip_range(ver_obj, skip_range):
@@ -379,7 +494,7 @@ def _same_version_channels(catalog: Dict, pkg: str, ver: str) -> List[str]:
 def _rank(node: Tuple[str, str]):
     """Higher is better: compare version first, then channel name."""
     chan, ver = node
-    return (safe_parse_version(ver), chan)
+    return (version_sort_key(ver), chan)
 
 
 def shortest_path_to(catalog: Dict, pkg: str, start: Tuple[str, str],
@@ -481,13 +596,27 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
 
     current_catalog = catalogs[ocp_path[0]]
 
-    if name not in current_catalog:
+    resolved, candidates = resolve_package(current_catalog, name)
+    if resolved is None:
         result['verdict'] = 'manual_review'
-        result['notes'].append(
-            f"Operator '{name}' is not present in the {ocp_path[0]} catalog. "
-            f"It may be a third-party operator, which this tool does not "
-            f"diagnose. Check manually.")
+        if candidates:
+            result['notes'].append(
+                f"Operator '{name}' matches more than one package in the "
+                f"{ocp_path[0]} catalog ({', '.join(candidates)}). Pass the "
+                f"exact package name. Check manually.")
+        else:
+            result['notes'].append(
+                f"Operator '{name}' is not present in the {ocp_path[0]} "
+                f"catalog. It may be a third-party operator, which this tool "
+                f"does not diagnose. Check manually.")
         return result
+
+    if resolved != name:
+        result['resolved_package'] = resolved
+        result['notes'].append(
+            f"Resolved '{name}' to catalog package '{resolved}'.")
+        name = resolved
+        result['operator'] = resolved
 
     if channel not in current_catalog[name]:
         available = ', '.join(sorted(current_catalog[name].keys()))
@@ -497,12 +626,22 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
             f"{ocp_path[0]} catalog. Available: {available}. Check manually.")
         return result
 
-    if version not in current_catalog[name][channel]:
+    matched, matches = resolve_version(current_catalog, name, channel, version)
+    if matched is None:
         result['verdict'] = 'manual_review'
         result['notes'].append(
             f"Version {version} is not present in channel '{channel}' of the "
             f"{ocp_path[0]} catalog. Check manually.")
         return result
+
+    if matched != normalize_version(version):
+        result['resolved_version'] = matched
+        extra = (f" ({len(matches)} builds share this version; the newest was "
+                 f"used)" if len(matches) > 1 else "")
+        result['notes'].append(
+            f"Resolved installed version {version} to catalog entry "
+            f"{matched}{extra}.")
+        version = matched
 
     result['version_pinned'] = is_version_pinned(catalogs, name)
 
@@ -542,7 +681,8 @@ def _plan_pinned(catalogs, ocp_path, name, current, excluded, result) -> Dict:
         on_ocp, next_ocp = ocp_path[0], ocp_path[1]
         # Same rule as every other release: switch to this release's channel and
         # take its latest version. Anything older cannot survive the hop.
-        target = release_channel(catalogs[on_ocp], name, on_ocp)
+        target = release_channel(catalogs[on_ocp], name, on_ocp,
+                                 prefer=current[0])
         phase = {
             'phase': 1, 'kind': 'pre-upgrade', 'on_ocp': on_ocp,
             'satisfies': [on_ocp, next_ocp],
@@ -550,7 +690,12 @@ def _plan_pinned(catalogs, ocp_path, name, current, excluded, result) -> Dict:
         }
         steps = (shortest_path_to(catalogs[on_ocp], name, current, {target})
                  if target and target != current else None)
-        if steps is None:
+
+        if target == current:
+            # Already at this release's head. The operator moves once the
+            # cluster reaches the next release; nothing to do beforehand.
+            pass
+        elif target is None or steps is None:
             phase.update({'to': phase['from'], 'hops': 0, 'steps': [],
                           'status': 'blocked'})
             result['phases'].append(phase)
@@ -563,20 +708,22 @@ def _plan_pinned(catalogs, ocp_path, name, current, excluded, result) -> Dict:
                 f"survive the move from {on_ocp} to {next_ocp}, and cannot be "
                 f"upgraded to {where} using the {on_ocp} catalog.")
             return result
-        current = target
-        phase.update({'to': {'channel': current[0], 'version': current[1]},
-                      'hops': sum(1 for s in steps if s['via'] != 'channel-switch'),
-                      'steps': steps, 'status': 'upgrade_required'})
-        result['phases'].append(phase)
-        result['verdict'] = 'operator_upgrade_required'
-        result['notes'].append(
-            f"The installed version predates the release window, so an upgrade "
-            f"to the {on_ocp} channel is required before the cluster can move.")
+        else:
+            current = target
+            phase.update({'to': {'channel': current[0], 'version': current[1]},
+                          'hops': sum(1 for x in steps
+                                      if x['via'] != 'channel-switch'),
+                          'steps': steps, 'status': 'upgrade_required'})
+            result['phases'].append(phase)
+            result['verdict'] = 'operator_upgrade_required'
+            result['notes'].append(
+                f"The installed version predates the release window, so an "
+                f"upgrade on {on_ocp} is required before the cluster can move.")
 
     # One operator upgrade per OCP release the cluster lands on.
     for ocp in ocp_path[1:]:
         catalog = catalogs[ocp]
-        target = release_channel(catalog, name, ocp)
+        target = release_channel(catalog, name, ocp, prefer=current[0])
         phase = {
             'phase': len(result['phases']) + 1,
             'kind': 'per-release', 'on_ocp': ocp, 'satisfies': [ocp],
