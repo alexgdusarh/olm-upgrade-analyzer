@@ -41,10 +41,13 @@ Adds OCP cluster upgrade planning across one catalog per OCP release.
 - Non-monotonic catalog entries are excluded from planning and reported as notes
   for manual verification.
 - JSON on stdout and exit codes: 0 ok, 2 manual review, 3 blocked, 1 input error.
-- Catalog auto-discovery. `--catalog-dir` is optional; a `data/` directory or a
-  flat layout is found automatically, beside the input file first and then in
-  the current directory. Missing releases are reported alongside the ones that
-  were found.
+- Catalog auto-discovery. `--catalog-dir` is optional. Catalogs are commonly
+  kept outside the project that consumes them, so the search covers the
+  `OCP_CATALOG_DIR` environment variable, several conventional directory names
+  (`data`, `catalogs`, `catalog`, `data-catalogs`, `ocp-catalogs`) beside the
+  input file and the current directory and walking up their parents, and
+  finally a bounded recursive scan. Missing releases are reported alongside
+  the ones that were found, and a failed search lists every location tried.
 
 ### Input handling
 - Cluster versions accept `x.y.z`; the patch level is ignored when selecting

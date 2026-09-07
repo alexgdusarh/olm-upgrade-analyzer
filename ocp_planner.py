@@ -32,6 +32,7 @@ Objective, in order:
 """
 
 import json
+import os
 import re
 from collections import deque
 from pathlib import Path
@@ -244,39 +245,105 @@ def load_catalog(path: str) -> Dict[str, Dict[str, Dict[str, Dict]]]:
     return catalog
 
 
+CATALOG_ENV_VAR = 'OCP_CATALOG_DIR'
+CATALOG_DIR_NAMES = ('data', 'catalogs', 'catalog', 'data-catalogs', 'ocp-catalogs')
+CATALOG_SEARCH_DEPTH = 3
+
+
 def discover_catalog_dir(explicit: Optional[str] = None,
                          search_from: Optional[str] = None) -> str:
     """
     Locate the directory holding the data-v<major>_<minor>.json catalogs.
 
-    An explicit path always wins. Otherwise the conventional locations are
-    tried in order: a 'data' directory, then the directory itself. Each
-    candidate is checked against the input file's directory first (when given),
-    then the current working directory.
+    Catalogs are commonly kept outside the project that consumes them, so the
+    search is deliberately wide. In order of precedence:
+
+        1. --catalog-dir
+        2. the OCP_CATALOG_DIR environment variable
+        3. a conventional catalog directory beside the input file, then beside
+           the current directory, then walking up their parents
+        4. a bounded recursive scan below the input file's directory and the
+           current directory
+
+    The first location holding at least one catalog wins.
     """
     if explicit:
-        path = Path(explicit)
+        path = Path(explicit).expanduser()
         if not path.is_dir():
             raise FileNotFoundError(f"Catalog directory not found: {explicit}")
         if not find_catalogs(str(path)):
             raise FileNotFoundError(
-                f"No data-v<major>_<minor>.json files in {explicit}")
+                f"No data-v<major>_<minor>.json files in {path}")
+        return str(path)
+
+    env = os.environ.get(CATALOG_ENV_VAR)
+    if env:
+        path = Path(env).expanduser()
+        if not path.is_dir():
+            raise FileNotFoundError(
+                f"{CATALOG_ENV_VAR} points at {env}, which is not a directory")
+        if not find_catalogs(str(path)):
+            raise FileNotFoundError(
+                f"{CATALOG_ENV_VAR} points at {path}, which holds no "
+                f"data-v<major>_<minor>.json files")
         return str(path)
 
     roots = []
     if search_from:
-        roots.append(Path(search_from))
-    roots.append(Path.cwd())
+        roots.append(Path(search_from).expanduser().resolve())
+    cwd = Path.cwd().resolve()
+    if cwd not in roots:
+        roots.append(cwd)
 
+    tried = []
+
+    # conventional locations, walking up from each root
     for root in roots:
-        for candidate in (root / 'data', root):
-            if candidate.is_dir() and find_catalogs(str(candidate)):
-                return str(candidate)
+        for level, base in enumerate([root] + list(root.parents)):
+            if level > CATALOG_SEARCH_DEPTH:
+                break
+            for name in CATALOG_DIR_NAMES:
+                candidate = base / name
+                tried.append(candidate)
+                if candidate.is_dir() and find_catalogs(str(candidate)):
+                    return str(candidate)
+            tried.append(base)
+            if find_catalogs(str(base)):
+                return str(base)
 
-    tried = ", ".join(str(r / 'data') + " and " + str(r) for r in roots)
+    # bounded recursive scan as a last resort
+    for root in roots:
+        found = _scan_for_catalogs(root, CATALOG_SEARCH_DEPTH)
+        if found:
+            return found
+
+    hint = (f"Set {CATALOG_ENV_VAR} or pass --catalog-dir to point at them.")
+    sample = "\n  ".join(str(p) for p in list(dict.fromkeys(tried))[:12])
     raise FileNotFoundError(
-        "Could not find any data-v<major>_<minor>.json catalogs. "
-        f"Looked in: {tried}. Pass --catalog-dir to point at them.")
+        "Could not find any data-v<major>_<minor>.json catalogs.\n"
+        f"Looked in:\n  {sample}\n"
+        f"...and scanned {CATALOG_SEARCH_DEPTH} levels below "
+        f"{' and '.join(str(r) for r in roots)}.\n{hint}")
+
+
+def _scan_for_catalogs(root: Path, max_depth: int) -> Optional[str]:
+    """Walk below root looking for a directory holding catalogs."""
+    root = Path(root)
+    if not root.is_dir():
+        return None
+    base_depth = len(root.parts)
+    skip = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'html'}
+    for dirpath, dirnames, filenames in os.walk(root):
+        current = Path(dirpath)
+        depth = len(current.parts) - base_depth
+        if any(re.match(r'^data-v\d+_\d+\.json$', f) for f in filenames):
+            return str(current)
+        if depth >= max_depth:
+            dirnames[:] = []
+            continue
+        dirnames[:] = [d for d in dirnames if d not in skip
+                       and not d.startswith('.')]
+    return None
 
 
 def find_catalogs(catalog_dir: str) -> Dict[str, str]:

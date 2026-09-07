@@ -71,7 +71,7 @@ A mismatch is rejected rather than guessed:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-i`, `--input` | stdin | Input JSON file |
-| `--catalog-dir` | auto | Directory holding the catalogs |
+| `--catalog-dir` | auto | Directory holding the catalogs. Falls back to `OCP_CATALOG_DIR`, then discovery |
 | `-d`, `--output-dir` | `.` | Where `html/` is written |
 | `-j`, `--json-out` | — | Also write the plan JSON to this file |
 | `-q`, `--quiet` | off | Suppress progress output on stderr |
@@ -89,8 +89,33 @@ project/                      project/
     data-v4_20.json
 ```
 
-Found automatically: beside the input file first, then the current directory,
-checking `data/` before the directory itself. `--catalog-dir` overrides.
+Catalogs are usually kept outside the project that consumes them, so they are
+looked for in this order:
+
+1. `--catalog-dir`
+2. the `OCP_CATALOG_DIR` environment variable
+3. a conventional catalog directory — `data/`, `catalogs/`, `catalog/`,
+   `data-catalogs/`, `ocp-catalogs/` — beside the input file, then beside the
+   current directory, then walking up their parents
+4. a bounded recursive scan below the input file's directory and the current
+   directory
+
+So a layout like this needs no flag at all:
+
+```
+/home/you/
+  ocp-operator-upgrade/    <- run from here
+    cluster.json
+  catalogs/                <- found by the parent walk
+    data-v4_18.json
+    ...
+```
+
+For a fixed location, set it once:
+
+```bash
+export OCP_CATALOG_DIR=/srv/ocp/catalogs
+```
 
 Only releases on the path are read. A 4.18 to 4.20 EUS run opens 4.18, 4.19 and
 4.20 and ignores any other catalogs sitting there.
