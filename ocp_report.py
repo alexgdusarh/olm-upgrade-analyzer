@@ -220,13 +220,18 @@ def _phase_html(catalog: Dict, pkg: str, phase: Dict) -> str:
            'unreachable': 'bad'}.get(status, '')
 
     frm, to = phase['from'], phase['to']
-    kind = ('Before the cluster moves' if phase['kind'] == 'pre-upgrade'
-            else 'After the cluster upgrade')
+    kind = {'pre-upgrade': 'Before the cluster moves',
+            'per-release': 'After the cluster reaches this release',
+            'post-upgrade': 'After the cluster upgrade'}.get(
+                phase['kind'], phase['kind'])
     satisfies = ' and '.join(phase['satisfies'])
 
     if phase['kind'] == 'pre-upgrade':
         purpose = (f"Must be valid on OCP {satisfies} so the cluster can move "
                    f"from {phase['satisfies'][0]} to {phase['satisfies'][1]}.")
+    elif phase['kind'] == 'per-release':
+        purpose = (f"Cluster has arrived on OCP {phase['on_ocp']}. Switch to "
+                   f"this release's channel and take its latest version.")
     else:
         purpose = f"Cluster is on OCP {phase['on_ocp']}. Take the operator to latest."
 

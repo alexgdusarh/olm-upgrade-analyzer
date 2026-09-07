@@ -47,8 +47,17 @@ Adds OCP cluster upgrade planning across one catalog per OCP release.
   were found.
 
 ### Design
-- Constraint is **pairwise per hop**, not a global intersection across all
-  catalogs. For a hop from OCP N to N+1 the operator must sit at a
+- Two planning models, chosen by whether the operator's version stream is
+  pinned to the OCP release.
+- **Release-pinned operators follow the cluster.** Each catalog carries the
+  previous release's channel as well as its own, so an operator at
+  `stable-<N>` stays valid when the cluster moves to N+1. The operator is
+  therefore upgraded *after* each hop: move the cluster, switch to that
+  release's channel, take its latest version. One operator upgrade per OCP
+  upgrade. A pre-upgrade phase appears only when the installed version
+  predates the release window and cannot survive the first hop.
+- **Floating operators lead the cluster.** Constraint is **pairwise per hop**,
+  not a global intersection across all catalogs. For a hop from OCP N to N+1 the operator must sit at a
   (channel, version) present in both catalogs; it may be moved again while the
   cluster sits at an intermediate release. Version-pinned operators carry only
   `stable-<N-1>` and `stable-<N>` per catalog, so no tuple exists in all three

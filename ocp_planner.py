@@ -281,6 +281,26 @@ def tuples_in(catalog: Dict, pkg: str) -> set:
     return out
 
 
+def release_channel(catalog: Dict, pkg: str, ocp: str) -> Optional[Tuple[str, str]]:
+    """
+    The (channel, latest version) that a version-pinned operator should sit at
+    on a given OCP release: the channel carrying that release's version stream,
+    at its highest version.
+
+    Resolved from the data rather than by name, so any naming scheme works.
+    """
+    prefix = ocp + '.'
+    candidates = []
+    for chan, versions in catalog.get(pkg, {}).items():
+        matching = [v for v in versions if v.startswith(prefix)]
+        if matching:
+            best = max(matching, key=safe_parse_version)
+            candidates.append((chan, best))
+    if not candidates:
+        return None
+    return max(candidates, key=_rank)
+
+
 def is_version_pinned(catalogs: Dict[str, Dict], pkg: str) -> bool:
     """
     True when the operator's version stream tracks the OCP release, e.g.
@@ -496,7 +516,121 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
 
     current = (channel, version)
 
-    # One phase per cluster hop
+    if result['version_pinned']:
+        return _plan_pinned(catalogs, ocp_path, name, current, excluded, result)
+
+    return _plan_floating(catalogs, ocp_path, name, current, excluded, result)
+
+
+def _plan_pinned(catalogs, ocp_path, name, current, excluded, result) -> Dict:
+    """
+    Plan an operator whose version stream is pinned to the OCP release.
+
+    Such an operator follows the cluster rather than leading it. Each catalog
+    carries the previous release's channel as well as its own, so an operator
+    sitting at stable-<N> stays valid when the cluster moves to N+1. The upgrade
+    therefore happens after each hop: move the cluster, then switch to that
+    release's channel and take its latest version. One operator upgrade per OCP
+    upgrade.
+
+    A pre-upgrade phase is emitted only when the installed version is too old to
+    survive the first hop at all.
+    """
+    first_hop_catalog = catalogs[ocp_path[1]]
+
+    if current not in tuples_in(first_hop_catalog, name):
+        on_ocp, next_ocp = ocp_path[0], ocp_path[1]
+        # Same rule as every other release: switch to this release's channel and
+        # take its latest version. Anything older cannot survive the hop.
+        target = release_channel(catalogs[on_ocp], name, on_ocp)
+        phase = {
+            'phase': 1, 'kind': 'pre-upgrade', 'on_ocp': on_ocp,
+            'satisfies': [on_ocp, next_ocp],
+            'from': {'channel': current[0], 'version': current[1]},
+        }
+        steps = (shortest_path_to(catalogs[on_ocp], name, current, {target})
+                 if target and target != current else None)
+        if steps is None:
+            phase.update({'to': phase['from'], 'hops': 0, 'steps': [],
+                          'status': 'blocked'})
+            result['phases'].append(phase)
+            result['verdict'] = 'blocked'
+            result['blocking'] = True
+            where = (f"{target[1]} in channel {target[0]}" if target
+                     else f"any {on_ocp} channel")
+            result['notes'].append(
+                f"'{name}' at {current[1]} (channel {current[0]}) is too old to "
+                f"survive the move from {on_ocp} to {next_ocp}, and cannot be "
+                f"upgraded to {where} using the {on_ocp} catalog.")
+            return result
+        current = target
+        phase.update({'to': {'channel': current[0], 'version': current[1]},
+                      'hops': sum(1 for s in steps if s['via'] != 'channel-switch'),
+                      'steps': steps, 'status': 'upgrade_required'})
+        result['phases'].append(phase)
+        result['verdict'] = 'operator_upgrade_required'
+        result['notes'].append(
+            f"The installed version predates the release window, so an upgrade "
+            f"to the {on_ocp} channel is required before the cluster can move.")
+
+    # One operator upgrade per OCP release the cluster lands on.
+    for ocp in ocp_path[1:]:
+        catalog = catalogs[ocp]
+        target = release_channel(catalog, name, ocp)
+        phase = {
+            'phase': len(result['phases']) + 1,
+            'kind': 'per-release', 'on_ocp': ocp, 'satisfies': [ocp],
+            'from': {'channel': current[0], 'version': current[1]},
+        }
+
+        if target is None or target == current:
+            phase.update({'to': phase['from'], 'hops': 0, 'steps': [],
+                          'status': 'no_action'})
+            result['phases'].append(phase)
+            continue
+
+        steps = shortest_path_to(catalog, name, current, {target})
+        if steps is None:
+            phase.update({'to': phase['from'], 'hops': 0, 'steps': [],
+                          'status': 'unreachable'})
+            result['phases'].append(phase)
+            result['verdict'] = 'manual_review'
+            result['notes'].append(
+                f"On OCP {ocp}, '{name}' cannot reach {target[1]} in channel "
+                f"{target[0]} from {current[1]} (channel {current[0]}). "
+                f"Verify manually.")
+            continue
+
+        current = target
+        phase.update({'to': {'channel': current[0], 'version': current[1]},
+                      'hops': sum(1 for s in steps if s['via'] != 'channel-switch'),
+                      'steps': steps, 'status': 'upgrade_required'})
+        result['phases'].append(phase)
+        result['verdict'] = 'operator_upgrade_required'
+
+        # The version installed here may have been retired by the next release.
+        idx = ocp_path.index(ocp)
+        if idx + 1 < len(ocp_path):
+            nxt = ocp_path[idx + 1]
+            if current not in tuples_in(catalogs[nxt], name):
+                result['notes'].append(
+                    f"{current[1]} (channel {current[0]}) is the head of that "
+                    f"channel on {ocp} but is absent from the {nxt} catalog. "
+                    f"That is expected for a release-pinned operator, which "
+                    f"moves to the {nxt} channel once the cluster arrives.")
+
+    return result
+
+
+def _plan_floating(catalogs, ocp_path, name, current, excluded, result) -> Dict:
+    """
+    Plan an operator whose versions are independent of the OCP release.
+
+    Here the operator leads: for each hop it must already sit at a
+    (channel, version) present in both the current and next catalogs, so it is
+    upgraded before the cluster moves. A final phase takes it to latest once the
+    cluster has arrived.
+    """
     for i in range(len(ocp_path) - 1):
         on_ocp, next_ocp = ocp_path[i], ocp_path[i + 1]
         allowed = (tuples_in(catalogs[on_ocp], name)
