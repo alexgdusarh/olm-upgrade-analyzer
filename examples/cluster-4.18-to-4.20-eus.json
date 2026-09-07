@@ -1,0 +1,11 @@
+{
+  "cluster": { "current": "4.18", "target": "4.20", "channel": "eus" },
+  "operators": [
+    { "name": "odf-operator",     "channel": "stable-4.18", "version": "4.18.3"  },
+    { "name": "lvms-operator",    "channel": "stable-4.18", "version": "4.18.1"  },
+    { "name": "loki-operator",    "channel": "stable-6.1",  "version": "6.1.0"   },
+    { "name": "loki-operator",    "channel": "stable-6.4",  "version": "6.4.0"   },
+    { "name": "openshift-gitops-operator", "channel": "gitops-1.14", "version": "1.14.1" },
+    { "name": "compliance-operator", "channel": "stable",   "version": "1.6.0"   }
+  ]
+}

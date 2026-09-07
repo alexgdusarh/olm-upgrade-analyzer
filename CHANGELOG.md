@@ -24,3 +24,37 @@ First stable release.
 - compliance-operator
 - devspaces
 - jws-operator
+
+## [Unreleased] - feature/ocp-eus-multi-catalog
+
+Adds OCP cluster upgrade planning across one catalog per OCP release.
+
+### Added
+- `ocp_upgrade_planner.py` — CLI taking a cluster plus an operator list as JSON.
+- `ocp_planner.py` — planning engine.
+- `ocp_report.py` — one HTML report per operator, one row group per phase,
+  plus a cluster summary page.
+- EUS (current+2) and single-release (current+1) upgrade paths, derived from
+  `cluster.channel`. Catalogs outside the path are never read.
+- Generic detection of version-pinned operators (versions tracking the OCP
+  release, e.g. odf-operator 4.18.x on OCP 4.18).
+- Non-monotonic catalog entries are excluded from planning and reported as notes
+  for manual verification.
+- JSON on stdout and exit codes: 0 ok, 2 manual review, 3 blocked, 1 input error.
+
+### Design
+- Constraint is **pairwise per hop**, not a global intersection across all
+  catalogs. For a hop from OCP N to N+1 the operator must sit at a
+  (channel, version) present in both catalogs; it may be moved again while the
+  cluster sits at an intermediate release. Version-pinned operators carry only
+  `stable-<N-1>` and `stable-<N>` per catalog, so no tuple exists in all three
+  catalogs of an EUS jump — a global model would wrongly report the whole ODF
+  family as blocked.
+- Hops are counted per upgrade. Switching channel at the same version is free.
+- Objective: fewest hops before the cluster can move, then the highest
+  channel/version among equal-hop options.
+- Presence is modelled as explicit version sets, not min/max floors, because
+  channels are not always contiguous.
+
+### Unchanged
+- `operator_interactive.py` and the single-catalog v1.0.0 behaviour.
