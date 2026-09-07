@@ -18,8 +18,9 @@ Input:
       ]
     }
 
-Catalog files are resolved from --catalog-dir as data-v<major>_<minor>.json,
-one per OCP release on the path.
+Catalog files are named data-v<major>_<minor>.json, one per OCP release.
+They are looked for in ./data or the current directory (and in the same two
+locations beside the input file), or wherever --catalog-dir points.
 
 Exit codes:
     0  no action required, or operator upgrades are required and planned
@@ -35,6 +36,7 @@ from pathlib import Path
 
 from ocp_planner import (
     build_ocp_path,
+    discover_catalog_dir,
     load_catalogs,
     plan_operator,
     catalog_filename,
@@ -125,13 +127,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s -i cluster.json --catalog-dir ./catalogs
-  cat cluster.json | %(prog)s --catalog-dir ./catalogs
+  %(prog)s -i cluster.json
+  cat cluster.json | %(prog)s
   %(prog)s -i cluster.json --catalog-dir ./catalogs -j plan.json
 """)
     ap.add_argument('-i', '--input', help='Input JSON file (default: stdin)')
-    ap.add_argument('--catalog-dir', required=True,
-                    help='Directory holding data-v<major>_<minor>.json files')
+    ap.add_argument('--catalog-dir',
+                    help='Directory holding data-v<major>_<minor>.json files. '
+                         'Default: ./data or the current directory, or the '
+                         'same locations beside the input file.')
     ap.add_argument('-d', '--output-dir', default='.',
                     help='Where to write html/ (default: .)')
     ap.add_argument('-j', '--json-out',
@@ -154,7 +158,11 @@ Examples:
         return EXIT_ERROR
 
     try:
-        plan = run(payload, args.catalog_dir, args.output_dir, args.quiet)
+        search_from = str(Path(args.input).parent) if args.input else None
+        catalog_dir = discover_catalog_dir(args.catalog_dir, search_from)
+        if not args.quiet:
+            print(f"Catalogs: {catalog_dir}", file=sys.stderr)
+        plan = run(payload, catalog_dir, args.output_dir, args.quiet)
     except (ValueError, FileNotFoundError) as e:
         print(f"{e}", file=sys.stderr)
         return EXIT_ERROR

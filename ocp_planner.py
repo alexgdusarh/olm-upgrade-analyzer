@@ -202,18 +202,69 @@ def load_catalog(path: str) -> Dict[str, Dict[str, Dict[str, Dict]]]:
     return catalog
 
 
+def discover_catalog_dir(explicit: Optional[str] = None,
+                         search_from: Optional[str] = None) -> str:
+    """
+    Locate the directory holding the data-v<major>_<minor>.json catalogs.
+
+    An explicit path always wins. Otherwise the conventional locations are
+    tried in order: a 'data' directory, then the directory itself. Each
+    candidate is checked against the input file's directory first (when given),
+    then the current working directory.
+    """
+    if explicit:
+        path = Path(explicit)
+        if not path.is_dir():
+            raise FileNotFoundError(f"Catalog directory not found: {explicit}")
+        if not find_catalogs(str(path)):
+            raise FileNotFoundError(
+                f"No data-v<major>_<minor>.json files in {explicit}")
+        return str(path)
+
+    roots = []
+    if search_from:
+        roots.append(Path(search_from))
+    roots.append(Path.cwd())
+
+    for root in roots:
+        for candidate in (root / 'data', root):
+            if candidate.is_dir() and find_catalogs(str(candidate)):
+                return str(candidate)
+
+    tried = ", ".join(str(r / 'data') + " and " + str(r) for r in roots)
+    raise FileNotFoundError(
+        "Could not find any data-v<major>_<minor>.json catalogs. "
+        f"Looked in: {tried}. Pass --catalog-dir to point at them.")
+
+
+def find_catalogs(catalog_dir: str) -> Dict[str, str]:
+    """Map every OCP release found in a directory to its catalog file path."""
+    found = {}
+    directory = Path(catalog_dir)
+    if not directory.is_dir():
+        return found
+    for path in directory.glob('data-v*.json'):
+        m = re.match(r'^data-v(\d+)_(\d+)\.json$', path.name)
+        if m:
+            found[f"{int(m.group(1))}.{int(m.group(2))}"] = str(path)
+    return found
+
+
 def load_catalogs(catalog_dir: str, ocp_path: List[str]) -> Dict[str, Dict]:
     catalogs = {}
     missing = []
     for ocp in ocp_path:
         path = Path(catalog_dir) / catalog_filename(ocp)
         if not path.exists():
-            missing.append(str(path))
+            missing.append(catalog_filename(ocp))
             continue
         catalogs[ocp] = load_catalog(str(path))
     if missing:
+        available = sorted(find_catalogs(catalog_dir),
+                           key=lambda v: parse_ocp(v))
         raise FileNotFoundError(
-            "Missing catalog file(s): " + ", ".join(missing))
+            f"Missing catalog file(s) in {catalog_dir}: {', '.join(missing)}. "
+            f"Available releases: {', '.join(available) if available else 'none'}")
     return catalogs
 
 

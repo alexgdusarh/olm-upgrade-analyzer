@@ -41,6 +41,10 @@ Adds OCP cluster upgrade planning across one catalog per OCP release.
 - Non-monotonic catalog entries are excluded from planning and reported as notes
   for manual verification.
 - JSON on stdout and exit codes: 0 ok, 2 manual review, 3 blocked, 1 input error.
+- Catalog auto-discovery. `--catalog-dir` is optional; a `data/` directory or a
+  flat layout is found automatically, beside the input file first and then in
+  the current directory. Missing releases are reported alongside the ones that
+  were found.
 
 ### Design
 - Constraint is **pairwise per hop**, not a global intersection across all
