@@ -1,10 +1,14 @@
 # OLM Operator Upgrade Path Analyzer
 
-Analyzes OpenShift operator upgrade paths from an OLM catalog using `skipRange`
-and `replaces` metadata, and renders the result as a networkx graph inside a
-self-contained HTML report.
+Two tools that read OLM catalogs and work out how operators need to move.
 
-Generic: works for any operator in the catalog. No hardcoded operator names or versions.
+| Tool | Question it answers |
+|------|---------------------|
+| `ocp_upgrade_planner.py` | I am upgrading a cluster. What must happen to my operators, and when? |
+| `operator_interactive.py` | How do I get one operator from version A to the latest, in one catalog? |
+
+Both are generic. No operator names, versions or channel naming schemes are
+hardcoded anywhere.
 
 ## Install
 
@@ -12,7 +16,200 @@ Generic: works for any operator in the catalog. No hardcoded operator names or v
 pip install -r requirements.txt
 ```
 
-## Usage
+---
+
+# 1. Cluster upgrade planner
+
+Plans every operator around an OCP cluster upgrade, using one catalog per OCP
+release. Writes one HTML report per operator plus a cluster summary, and prints
+the plan as JSON.
+
+```bash
+python ocp_upgrade_planner.py -i cluster.json
+```
+
+## Input
+
+JSON, from a file (`-i`) or stdin.
+
+```json
+{
+  "cluster": {
+    "current": "4.18",
+    "target":  "4.20",
+    "channel": "eus"
+  },
+  "operators": [
+    { "name": "odf-operator",  "channel": "stable-4.18", "version": "4.18.3" },
+    { "name": "loki-operator", "channel": "stable-6.1",  "version": "6.1.0"  }
+  ]
+}
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `cluster.current` | yes | OCP release the cluster is on now |
+| `cluster.target` | yes | OCP release to reach |
+| `cluster.channel` | no | `eus` or anything else (`stable`, `fast`, ...). Default `stable` |
+| `operators[].name` | yes | OLM **package** name, as it appears in the catalog |
+| `operators[].channel` | yes | Subscription channel currently in use |
+| `operators[].version` | yes | Version currently installed |
+
+`cluster.channel` decides the path length and nothing else:
+
+- `eus` — jumps two releases: `4.18 -> 4.19 -> 4.20`
+- anything else — jumps one: `4.18 -> 4.19`
+
+A mismatch is rejected rather than guessed:
+
+```
+'stable' upgrade expects a 1-release jump, but 4.18 -> 4.20 spans 2
+```
+
+## Command-line flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-i`, `--input` | stdin | Input JSON file |
+| `--catalog-dir` | auto | Directory holding the catalogs |
+| `-d`, `--output-dir` | `.` | Where `html/` is written |
+| `-j`, `--json-out` | — | Also write the plan JSON to this file |
+| `-q`, `--quiet` | off | Suppress progress output on stderr |
+
+## Catalogs
+
+Named `data-v<major>_<minor>.json`, one per OCP release. Either layout works:
+
+```
+project/                      project/
+  cluster.json                  cluster.json
+  data/                         data-v4_18.json
+    data-v4_18.json             data-v4_19.json
+    data-v4_19.json             data-v4_20.json
+    data-v4_20.json
+```
+
+Found automatically: beside the input file first, then the current directory,
+checking `data/` before the directory itself. `--catalog-dir` overrides.
+
+Only releases on the path are read. A 4.18 to 4.20 EUS run opens 4.18, 4.19 and
+4.20 and ignores any other catalogs sitting there.
+
+## Output
+
+`html/index.html` is the cluster summary; `html/<operator>/index.html` is the
+per-operator report, one row group per phase — info table, graph, steps. The
+plan JSON goes to stdout.
+
+Abbreviated — each object carries more keys than shown:
+
+```json
+{
+  "cluster": { "current": "4.18", "target": "4.20",
+               "channel": "eus", "ocp_path": ["4.18", "4.19", "4.20"] },
+  "verdict": "operator_upgrade_required",
+  "blocking_operators": [],
+  "manual_review_operators": [],
+  "operators_requiring_upgrade": ["odf-operator"],
+  "operators": [
+    {
+      "operator": "odf-operator",
+      "verdict": "operator_upgrade_required",
+      "version_pinned": true,
+      "phases": [
+        { "phase": 1, "kind": "per-release", "on_ocp": "4.19",
+          "status": "upgrade_required", "hops": 1,
+          "from": { "channel": "stable-4.18", "version": "4.18.3"  },
+          "to":   { "channel": "stable-4.19", "version": "4.19.22" },
+          "steps": [ { "to_channel": "stable-4.19",
+                       "to_version": "4.19.22", "via": "skipRange" } ] }
+      ],
+      "notes": [],
+      "html": "html/odf-operator/index.html"
+    }
+  ]
+}
+```
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | No action required, or operator upgrades are required and planned |
+| 1 | Usage or input error |
+| 2 | Manual review required |
+| 3 | An operator blocks the cluster upgrade |
+
+### Verdicts
+
+`no_action_required`, `operator_upgrade_required`, `manual_review`, `blocked`.
+
+## How operators are planned
+
+Two models, chosen automatically per operator.
+
+### Release-pinned operators follow the cluster
+
+An operator whose version stream tracks the OCP release — `odf-operator` 4.18.x
+on OCP 4.18, `lvms-operator`, the ODF family. Detected from the version data,
+not from channel names.
+
+Every catalog carries the previous release's channel alongside its own, so an
+operator at `stable-<N>` is still valid once the cluster reaches N+1. Nothing
+has to happen before the hop. The upgrade happens **after** the cluster
+arrives: switch to that release's channel, take its latest version. One
+operator upgrade per OCP upgrade.
+
+```
+odf-operator, installed stable-4.18 / 4.18.3
+
+  cluster 4.18 -> 4.19
+  on 4.19:  switch to stable-4.19, install 4.19.22
+  cluster 4.19 -> 4.20
+  on 4.20:  switch to stable-4.20, install 4.20.17
+```
+
+A pre-upgrade phase appears only when the installed version predates the
+release window and could not survive the first hop — then it is aligned to the
+current release's channel head under the same rule.
+
+### Floating operators lead the cluster
+
+Everything else — `loki-operator`, `compliance-operator`, `openshift-gitops-operator`.
+
+For each hop the operator must already sit at a (channel, version) present in
+**both** the current and next catalogs, so it is upgraded before the cluster
+moves. The constraint is pairwise per hop, not a single tuple valid across every
+catalog. A final phase takes it to latest once the cluster has arrived.
+
+```
+loki-operator, installed stable-6.1 / 6.1.0
+
+  on 4.18:  upgrade to stable-6.3 / 6.3.4   (stable-6.1 is gone by 4.19)
+  cluster 4.18 -> 4.19                       (nothing to do)
+  cluster 4.19 -> 4.20
+  on 4.20:  upgrade to stable-6.6 / 6.6.0
+```
+
+### Objective
+
+Fewest upgrades before the cluster can move, so the cluster is unblocked
+quickly. Among options costing the same number of upgrades, the highest channel
+and version, since that means fewer upgrades overall afterwards. Switching
+channel at the same version is free and does not count as an upgrade.
+
+### Catalog anomalies
+
+Occasionally a channel or version is present in two releases but missing from
+one in between, or is dropped from the middle of a channel. Those entries are
+excluded from planning and reported in the notes for manual checking rather
+than being planned around.
+
+---
+
+# 2. Single-catalog analyzer
+
+The original tool. One operator, one catalog, shortest path to a target.
 
 ```bash
 python operator_interactive.py -f data.json -o OPERATOR -v VERSION [-c CHANNEL] [-t TARGET]
@@ -20,57 +217,41 @@ python operator_interactive.py -f data.json -o OPERATOR -v VERSION [-c CHANNEL] 
 
 | Flag | Required | Description |
 |------|----------|-------------|
-| `-f, --file` | yes | OLM catalog JSON file |
-| `-o, --operator` | yes | Operator (package) name |
-| `-v, --version` | yes | Current / start version |
-| `-c, --target-channel` | no | Restrict the path to this channel |
-| `-t, --target-version` | no | Stop at this version instead of the latest |
-| `-d, --output-dir` | no | Output directory (default: `.`) |
+| `-f`, `--file` | yes | OLM catalog JSON file |
+| `-o`, `--operator` | yes | Operator (package) name |
+| `-v`, `--version` | yes | Current / start version |
+| `-c`, `--target-channel` | no | Restrict the path to this channel |
+| `-t`, `--target-version` | no | Stop here instead of the latest |
+| `-d`, `--output-dir` | no | Output directory (default `.`) |
 
 Output: `html/<operator>/index.html`
 
-## Examples
-
 ```bash
-# Upgrade to the latest version, crossing channels as needed
+# latest version, crossing channels as needed
 python operator_interactive.py -f data.json -o loki-operator -v 6.0.0
 #   6.0.0 -> 6.2.12 (stable-6.2) -> 6.6.0 (stable-6.6)
 
-# Stay inside one channel
+# stay inside one channel
 python operator_interactive.py -f data.json -o loki-operator -v 6.2.9 -c stable-6.2
-#   6.2.9 -> 6.2.12 (stable-6.2)
+#   6.2.9 -> 6.2.12
 
-# Target a specific channel
-python operator_interactive.py -f data.json -o openshift-gitops-operator -v 1.14.1 -c gitops-1.21
-#   1.14.1 -> 1.21.0 -> 1.21.4 (gitops-1.21)
-
-# Target a specific version
+# target a specific version
 python operator_interactive.py -f data.json -o compliance-operator -v 0.1.32 -t 1.9.2
 ```
 
-## Target channel / target version
+Graph edges come from three sources: START via `skipRange`, the `replaces` chain
+within a channel, and each upgrade-path version via `skipRange` — the last is
+what draws jumps such as `1.21.0 -> 1.21.4`.
 
-Both flags are optional and can be used together or separately.
+---
 
-- Neither: the target is the highest version across all channels.
-- `-c` only: the path is restricted to that channel and stops at its highest version.
-  This is what makes a same-channel upgrade such as `6.2.9 -> 6.2.12` possible.
-- `-t` only: the path stops at that version, wherever it lives.
-- Both: the version must exist in the given channel.
+## Files
 
-See `ALGORITHM_DOCUMENTATION.md` for the full algorithm and worked examples.
-
-## Report contents
-
-- Info table: operator, current version, channel(s), target version
-- networkx graph (inline SVG) — green nodes are the upgrade path, blue are other
-  available versions in the same channels
-- Step-by-step upgrade instructions
-- Summary
-
-## Graph edges
-
-1. START to every version whose `skipRange` covers it
-2. `replaces` chain within a channel
-3. Each upgrade-path version to every version whose `skipRange` covers it
-   (this is what draws jumps such as `1.21.0 -> 1.21.4`)
+```
+ocp_upgrade_planner.py    cluster planner CLI
+ocp_planner.py            planning engine
+ocp_report.py             HTML reports
+operator_interactive.py   single-catalog analyzer
+docs/ALGORITHM_DOCUMENTATION.md
+examples/                 sample input and generated reports
+```
