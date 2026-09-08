@@ -67,6 +67,13 @@ Adds OCP cluster upgrade planning across one catalog per OCP release.
   `package.v4.18.3` and `package.4.18.3` appear in real catalogs.
 - The channel already in use is preferred when a release offers several, so an
   operator on `stable` is never quietly moved onto `candidate`.
+- A requested channel that no longer exists no longer fails the operator. It
+  falls back to the channel actually holding the installed version, then to the
+  newest channel named `stable` or `latest`, then to the newest channel ending
+  in a version number, then to the channel carrying the highest version. Every
+  substitution is recorded in the notes.
+- A leading `v` is optional on cluster and operator versions on input, matching
+  the existing tolerance for catalog entry names.
 
 ### Design
 - Two planning models, chosen by whether the operator's version stream is

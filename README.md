@@ -55,6 +55,23 @@ JSON, from a file (`-i`) or stdin.
 | `operators[].channel` | yes | Subscription channel currently in use |
 | `operators[].version` | yes | Version currently installed |
 
+Names and versions are matched leniently against the catalogs, since a
+subscription rarely records them exactly as the catalog does. A leading `v` is
+optional on any version. Package names are resolved past vendor prefixes and
+role suffixes (`openshift-mtv` finds `mtv-operator`). Build and vendor suffixes
+such as `-rhodf` or `-202608142236` are kept and compared.
+
+A channel that no longer exists is not an error. Resolution order:
+
+1. the requested channel, when it exists
+2. the channel actually holding the installed version
+3. the newest channel named `stable` or `latest`
+4. the newest channel ending in a version number
+5. the channel carrying the highest version
+
+Every substitution is recorded in that operator's `notes` so it can be checked
+against the real subscription.
+
 `cluster.channel` decides the path length and nothing else:
 
 - `eus` — jumps two releases: `4.18 -> 4.19 -> 4.20`

@@ -451,6 +451,70 @@ def resolve_version(catalog: Dict, pkg: str, chan: str,
     return None, []
 
 
+def channel_max_version(catalog: Dict, pkg: str, chan: str) -> Optional[str]:
+    versions = catalog.get(pkg, {}).get(chan, {})
+    if not versions:
+        return None
+    return max(versions, key=version_sort_key)
+
+
+def _channel_suffix_version(chan: str):
+    """The trailing numeric version in a channel name, if it has one."""
+    m = re.search(r'(\d+(?:\.\d+)*)$', str(chan))
+    return safe_parse_version(m.group(1)) if m else None
+
+
+def resolve_channel(catalog: Dict, pkg: str,
+                    requested: str) -> Tuple[Optional[str], str]:
+    """
+    Map a requested channel onto one that exists in the catalog.
+
+    A subscription may name a channel that has since been retired, so the
+    request is a hint rather than a guarantee. Resolution order:
+
+        1. the requested channel, when it exists
+        2. the newest channel whose name contains 'stable' or 'latest'
+        3. the newest channel whose name ends in a version number
+        4. the channel holding the highest version overall
+
+    'Newest' compares the highest version each channel carries, so it does not
+    depend on any particular naming scheme.
+
+    Returns (channel, reason). The channel is None only when the package has no
+    channels at all.
+    """
+    channels = catalog.get(pkg, {})
+    if not channels:
+        return None, 'no channels'
+
+    if requested in channels:
+        return requested, 'exact'
+
+    def newest(names):
+        scored = [(c, channel_max_version(catalog, pkg, c)) for c in names]
+        scored = [(c, v) for c, v in scored if v]
+        if not scored:
+            return None
+        return max(scored, key=lambda cv: version_sort_key(cv[1]))[0]
+
+    named = [c for c in channels
+             if 'stable' in c.lower() or 'latest' in c.lower()]
+    pick = newest(named)
+    if pick:
+        return pick, 'stable/latest'
+
+    versioned = [c for c in channels if _channel_suffix_version(c) is not None]
+    pick = newest(versioned)
+    if pick:
+        return pick, 'versioned'
+
+    pick = newest(list(channels))
+    if pick:
+        return pick, 'highest'
+
+    return None, 'no versions'
+
+
 def release_channel(catalog: Dict, pkg: str, ocp: str,
                     prefer: Optional[str] = None) -> Optional[Tuple[str, str]]:
     """
@@ -685,21 +749,58 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
         name = resolved
         result['operator'] = resolved
 
+    requested_channel = channel
     if channel not in current_catalog[name]:
-        available = ', '.join(sorted(current_catalog[name].keys()))
-        result['verdict'] = 'manual_review'
+        picked, reason = resolve_channel(current_catalog, name, channel)
+        if picked is None:
+            available = ', '.join(sorted(current_catalog[name].keys()))
+            result['verdict'] = 'manual_review'
+            result['notes'].append(
+                f"Channel '{channel}' does not exist for '{name}' in the "
+                f"{ocp_path[0]} catalog and no usable alternative was found. "
+                f"Available: {available}. Check manually.")
+            return result
+
+        explain = {
+            'stable/latest': "the newest channel named stable or latest",
+            'versioned': "the newest version-numbered channel",
+            'highest': "the channel carrying the highest version",
+        }.get(reason, reason)
+        result['resolved_channel'] = picked
         result['notes'].append(
             f"Channel '{channel}' does not exist for '{name}' in the "
-            f"{ocp_path[0]} catalog. Available: {available}. Check manually.")
-        return result
+            f"{ocp_path[0]} catalog. Fell back to '{picked}' ({explain}). "
+            f"Confirm this matches the subscription.")
+        channel = picked
+        result['input']['resolved_channel'] = picked
 
     matched, matches = resolve_version(current_catalog, name, channel, version)
     if matched is None:
-        result['verdict'] = 'manual_review'
-        result['notes'].append(
-            f"Version {version} is not present in channel '{channel}' of the "
-            f"{ocp_path[0]} catalog. Check manually.")
-        return result
+        # The version may belong to the channel that was originally requested.
+        alt = None
+        for chan in current_catalog[name]:
+            cand, _ = resolve_version(current_catalog, name, chan, version)
+            if cand is not None:
+                alt = (chan, cand)
+                break
+        if alt:
+            channel, matched = alt[0], alt[1]
+            result['resolved_channel'] = channel
+            result['input']['resolved_channel'] = channel
+            # The earlier fallback guess is superseded by where the installed
+            # version actually lives, so replace it rather than report both.
+            result['notes'] = [n for n in result['notes']
+                               if not n.startswith(f"Channel '{requested_channel}'")]
+            result['notes'].append(
+                f"Channel '{requested_channel}' does not exist for '{name}' in "
+                f"the {ocp_path[0]} catalog. Version {version} was located in "
+                f"'{channel}', which is used instead.")
+        else:
+            result['verdict'] = 'manual_review'
+            result['notes'].append(
+                f"Version {version} is not present in channel '{channel}' of "
+                f"the {ocp_path[0]} catalog. Check manually.")
+            return result
 
     if matched != normalize_version(version):
         result['resolved_version'] = matched
