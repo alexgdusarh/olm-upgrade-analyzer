@@ -4,3 +4,4 @@ __pycache__/
 venv/
 html/
 *.egg-info/
+.python-versio
