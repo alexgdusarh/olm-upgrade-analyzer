@@ -25,7 +25,7 @@ First stable release.
 - devspaces
 - jws-operator
 
-## [Unreleased] - feature/ocp-eus-multi-catalog
+## [2.0.0] - 2026-09-07
 
 Adds OCP cluster upgrade planning across one catalog per OCP release.
 
@@ -104,3 +104,8 @@ Adds OCP cluster upgrade planning across one catalog per OCP release.
 
 ### Unchanged
 - `operator_interactive.py` and the single-catalog v1.0.0 behaviour.
+
+### Removed
+- The algorithm document predating the planner, generated HTML reports checked
+  in as samples, and inputs captured during development. The example input is a
+  single template.
