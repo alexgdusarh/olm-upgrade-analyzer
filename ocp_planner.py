@@ -158,9 +158,22 @@ def format_ocp(major: int, minor: int) -> str:
     return f"{major}.{minor}"
 
 
-def catalog_filename(ocp: str) -> str:
+CATALOG_PATTERN = re.compile(r'^data-v(\d+)[._](\d+)\.json$')
+
+
+def catalog_filenames(ocp: str) -> List[str]:
+    """
+    Accepted catalog filenames for an OCP release, most preferred first.
+
+    The dot form is canonical. The underscore form is also accepted because
+    some transfer paths rewrite dots in filenames.
+    """
     major, minor = parse_ocp(ocp)
-    return f"data-v{major}_{minor}.json"
+    return [f"data-v{major}.{minor}.json", f"data-v{major}_{minor}.json"]
+
+
+def catalog_filename(ocp: str) -> str:
+    return catalog_filenames(ocp)[0]
 
 
 def build_ocp_path(current: str, target: str, channel: str) -> List[str]:
@@ -253,7 +266,7 @@ CATALOG_SEARCH_DEPTH = 3
 def discover_catalog_dir(explicit: Optional[str] = None,
                          search_from: Optional[str] = None) -> str:
     """
-    Locate the directory holding the data-v<major>_<minor>.json catalogs.
+    Locate the directory holding the data-v<major>.<minor>.json catalogs.
 
     Catalogs are commonly kept outside the project that consumes them, so the
     search is deliberately wide. In order of precedence:
@@ -273,7 +286,7 @@ def discover_catalog_dir(explicit: Optional[str] = None,
             raise FileNotFoundError(f"Catalog directory not found: {explicit}")
         if not find_catalogs(str(path)):
             raise FileNotFoundError(
-                f"No data-v<major>_<minor>.json files in {path}")
+                f"No data-v<major>.<minor>.json files in {path}")
         return str(path)
 
     env = os.environ.get(CATALOG_ENV_VAR)
@@ -285,7 +298,7 @@ def discover_catalog_dir(explicit: Optional[str] = None,
         if not find_catalogs(str(path)):
             raise FileNotFoundError(
                 f"{CATALOG_ENV_VAR} points at {path}, which holds no "
-                f"data-v<major>_<minor>.json files")
+                f"data-v<major>.<minor>.json files")
         return str(path)
 
     roots = []
@@ -320,7 +333,7 @@ def discover_catalog_dir(explicit: Optional[str] = None,
     hint = (f"Set {CATALOG_ENV_VAR} or pass --catalog-dir to point at them.")
     sample = "\n  ".join(str(p) for p in list(dict.fromkeys(tried))[:12])
     raise FileNotFoundError(
-        "Could not find any data-v<major>_<minor>.json catalogs.\n"
+        "Could not find any data-v<major>.<minor>.json catalogs.\n"
         f"Looked in:\n  {sample}\n"
         f"...and scanned {CATALOG_SEARCH_DEPTH} levels below "
         f"{' and '.join(str(r) for r in roots)}.\n{hint}")
@@ -336,7 +349,7 @@ def _scan_for_catalogs(root: Path, max_depth: int) -> Optional[str]:
     for dirpath, dirnames, filenames in os.walk(root):
         current = Path(dirpath)
         depth = len(current.parts) - base_depth
-        if any(re.match(r'^data-v\d+_\d+\.json$', f) for f in filenames):
+        if any(CATALOG_PATTERN.match(f) for f in filenames):
             return str(current)
         if depth >= max_depth:
             dirnames[:] = []
@@ -353,7 +366,7 @@ def find_catalogs(catalog_dir: str) -> Dict[str, str]:
     if not directory.is_dir():
         return found
     for path in directory.glob('data-v*.json'):
-        m = re.match(r'^data-v(\d+)_(\d+)\.json$', path.name)
+        m = CATALOG_PATTERN.match(path.name)
         if m:
             found[f"{int(m.group(1))}.{int(m.group(2))}"] = str(path)
     return found
@@ -363,8 +376,13 @@ def load_catalogs(catalog_dir: str, ocp_path: List[str]) -> Dict[str, Dict]:
     catalogs = {}
     missing = []
     for ocp in ocp_path:
-        path = Path(catalog_dir) / catalog_filename(ocp)
-        if not path.exists():
+        path = None
+        for candidate in catalog_filenames(ocp):
+            option = Path(catalog_dir) / candidate
+            if option.exists():
+                path = option
+                break
+        if path is None:
             missing.append(catalog_filename(ocp))
             continue
         catalogs[ocp] = load_catalog(str(path))

@@ -18,7 +18,7 @@ Input:
       ]
     }
 
-Catalog files are named data-v<major>_<minor>.json, one per OCP release.
+Catalog files are named data-v<major>.<minor>.json, one per OCP release.
 They are looked for in ./data or the current directory (and in the same two
 locations beside the input file), or wherever --catalog-dir points.
 
@@ -133,7 +133,7 @@ Examples:
 """)
     ap.add_argument('-i', '--input', help='Input JSON file (default: stdin)')
     ap.add_argument('--catalog-dir',
-                    help='Directory holding data-v<major>_<minor>.json files. '
+                    help='Directory holding data-v<major>.<minor>.json files. '
                          'Default: ./data or the current directory, or the '
                          'same locations beside the input file.')
     ap.add_argument('-d', '--output-dir', default='.',

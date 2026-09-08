@@ -95,7 +95,7 @@ A mismatch is rejected rather than guessed:
 
 ## Catalogs
 
-Named `data-v<major>_<minor>.json`, one per OCP release. Either layout works:
+Named `data-v<major>.<minor>.json`, one per OCP release. Either layout works:
 
 ```
 project/                      project/

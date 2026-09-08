@@ -41,6 +41,10 @@ Adds OCP cluster upgrade planning across one catalog per OCP release.
 - Non-monotonic catalog entries are excluded from planning and reported as notes
   for manual verification.
 - JSON on stdout and exit codes: 0 ok, 2 manual review, 3 blocked, 1 input error.
+- Catalogs are named `data-v<major>.<minor>.json`, one per OCP release. The
+  underscore variant `data-v<major>_<minor>.json` is also accepted, since some
+  transfer paths rewrite dots in filenames. Other files in the same directory,
+  such as a combined `data.json`, are ignored.
 - Catalog auto-discovery. `--catalog-dir` is optional. Catalogs are commonly
   kept outside the project that consumes them, so the search covers the
   `OCP_CATALOG_DIR` environment variable, several conventional directory names

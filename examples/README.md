@@ -2,7 +2,7 @@
 
 ## Catalog layout
 
-Catalogs are named `data-v<major>_<minor>.json`, one per OCP release. Either
+Catalogs are named `data-v<major>.<minor>.json`, one per OCP release. Either
 layout is found automatically:
 
 ```
