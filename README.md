@@ -290,6 +290,7 @@ what draws jumps such as `1.21.0 -> 1.21.4`.
 ## Files
 
 ```
+LICENSE                   Apache License 2.0
 ocp_upgrade_planner.py    cluster planner CLI
 ocp_planner.py            planning engine
 ocp_report.py             HTML reports
@@ -297,3 +298,9 @@ operator_interactive.py   single-catalog analyzer
 examples/cluster.json     input template
 requirements.txt
 ```
+
+---
+
+## License
+
+Apache License 2.0. See `LICENSE`.

@@ -105,6 +105,9 @@ Adds OCP cluster upgrade planning across one catalog per OCP release.
 ### Unchanged
 - `operator_interactive.py` and the single-catalog v1.0.0 behaviour.
 
+### Added (packaging)
+- `LICENSE` - Apache License 2.0.
+
 ### Removed
 - The algorithm document predating the planner, generated HTML reports checked
   in as samples, and inputs captured during development. The example input is a
