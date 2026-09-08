@@ -24,3 +24,88 @@ First stable release.
 - compliance-operator
 - devspaces
 - jws-operator
+
+## [2.0.0] - 2026-09-07
+
+Adds OCP cluster upgrade planning across one catalog per OCP release.
+
+### Added
+- `ocp_upgrade_planner.py` — CLI taking a cluster plus an operator list as JSON.
+- `ocp_planner.py` — planning engine.
+- `ocp_report.py` — one HTML report per operator, one row group per phase,
+  plus a cluster summary page.
+- EUS (current+2) and single-release (current+1) upgrade paths, derived from
+  `cluster.channel`. Catalogs outside the path are never read.
+- Generic detection of version-pinned operators (versions tracking the OCP
+  release, e.g. odf-operator 4.18.x on OCP 4.18).
+- Non-monotonic catalog entries are excluded from planning and reported as notes
+  for manual verification.
+- JSON on stdout and exit codes: 0 ok, 2 manual review, 3 blocked, 1 input error.
+- Catalogs are named `data-v<major>.<minor>.json`, one per OCP release. The
+  underscore variant `data-v<major>_<minor>.json` is also accepted, since some
+  transfer paths rewrite dots in filenames. Other files in the same directory,
+  such as a combined `data.json`, are ignored.
+- Catalog auto-discovery. `--catalog-dir` is optional. Catalogs are commonly
+  kept outside the project that consumes them, so the search covers the
+  `OCP_CATALOG_DIR` environment variable, several conventional directory names
+  (`data`, `catalogs`, `catalog`, `data-catalogs`, `ocp-catalogs`) beside the
+  input file and the current directory and walking up their parents, and
+  finally a bounded recursive scan. Missing releases are reported alongside
+  the ones that were found, and a failed search lists every location tried.
+
+### Input handling
+- Cluster versions accept `x.y.z`; the patch level is ignored when selecting
+  catalogs, so `4.18.14 -> 4.20.32` resolves to the 4.18/4.19/4.20 catalogs.
+- Operator names are resolved against the catalog. Subscription names often
+  differ from the OLM package name (`openshift-mtv` for `mtv-operator`,
+  `cert-manager-operator` for `openshift-cert-manager-operator`); the vendor
+  prefix and role suffix are normalized away. Ambiguous matches are reported
+  rather than guessed, and every resolution is recorded in the notes.
+- Build and vendor version suffixes are preserved (`4.18.27-rhodf`,
+  `4.18.0-202608142236`). They are part of an operator's identity: several
+  operators publish many `4.18.0-<timestamp>` builds that would otherwise
+  collapse into a single version. Ordering falls back to the numeric core,
+  then to the suffix, so later dated builds rank higher. skipRange bounds are
+  still evaluated against the numeric core.
+- Catalog entries are matched with or without the `v` prefix, since both
+  `package.v4.18.3` and `package.4.18.3` appear in real catalogs.
+- The channel already in use is preferred when a release offers several, so an
+  operator on `stable` is never quietly moved onto `candidate`.
+- A requested channel that no longer exists no longer fails the operator. It
+  falls back to the channel actually holding the installed version, then to the
+  newest channel named `stable` or `latest`, then to the newest channel ending
+  in a version number, then to the channel carrying the highest version. Every
+  substitution is recorded in the notes.
+- A leading `v` is optional on cluster and operator versions on input, matching
+  the existing tolerance for catalog entry names.
+
+### Design
+- Two planning models, chosen by whether the operator's version stream is
+  pinned to the OCP release.
+- **Release-pinned operators follow the cluster.** Each catalog carries the
+  previous release's channel as well as its own, so an operator at
+  `stable-<N>` stays valid when the cluster moves to N+1. The operator is
+  therefore upgraded *after* each hop: move the cluster, switch to that
+  release's channel, take its latest version. One operator upgrade per OCP
+  upgrade. A pre-upgrade phase appears only when the installed version
+  predates the release window and cannot survive the first hop.
+- **Floating operators lead the cluster.** Constraint is **pairwise per hop**,
+  not a global intersection across all catalogs. For a hop from OCP N to N+1 the operator must sit at a
+  (channel, version) present in both catalogs; it may be moved again while the
+  cluster sits at an intermediate release. Version-pinned operators carry only
+  `stable-<N-1>` and `stable-<N>` per catalog, so no tuple exists in all three
+  catalogs of an EUS jump — a global model would wrongly report the whole ODF
+  family as blocked.
+- Hops are counted per upgrade. Switching channel at the same version is free.
+- Objective: fewest hops before the cluster can move, then the highest
+  channel/version among equal-hop options.
+- Presence is modelled as explicit version sets, not min/max floors, because
+  channels are not always contiguous.
+
+### Unchanged
+- `operator_interactive.py` and the single-catalog v1.0.0 behaviour.
+
+### Removed
+- The algorithm document predating the planner, generated HTML reports checked
+  in as samples, and inputs captured during development. The example input is a
+  single template.
