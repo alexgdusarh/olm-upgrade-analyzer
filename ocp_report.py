@@ -199,6 +199,14 @@ table.ops th { text-align:left; padding:11px 14px; background:#667eea; color:#ff
                font-size:13px; }
 table.ops td { padding:11px 14px; border-bottom:1px solid #eee; font-size:14px; color:#333; }
 table.ops tr:hover td { background:#fafafa; }
+table.ops th { vertical-align:top; }
+.th-sub { font-weight:400; font-size:11px; opacity:.85; margin-top:3px; }
+.cell-sub { font-size:11.5px; color:#777; margin-top:3px; }
+.cell-ok { color:#4caf50; } .cell-bad { color:#e05252; }
+.cell-none { color:#bbb; text-align:center; }
+.cell-rule { border:none; border-top:1px dashed #ddd; margin:8px 0; }
+.legend { font-size:13px; color:#666; background:#f7f7fa; border-left:3px solid #ccd;
+          padding:11px 14px; border-radius:4px; margin-bottom:14px; }
 a { color:#667eea; text-decoration:none; } a:hover { text-decoration:underline; }
 code { background:#eef; padding:1px 5px; border-radius:3px; font-size:13px; }
 """
@@ -242,7 +250,9 @@ def _phase_html(catalog: Dict, pkg: str, phase: Dict) -> str:
   <tr><td class="label">Current version</td><td><strong>{frm['version']}</strong></td></tr>
   <tr><td class="label">Target channel</td><td>{to['channel']}</td></tr>
   <tr><td class="label">Target version</td><td><strong>{to['version']}</strong></td></tr>
-  <tr><td class="label">Operator upgrades</td><td>{phase['hops']}</td></tr>
+  <tr><td class="label">Operator upgrades</td><td>{phase['hops']}{
+      ' (channel switch only, no version change)'
+      if not phase['hops'] and phase['steps'] else ''}</td></tr>
 </table>"""
 
     if phase['steps']:
@@ -329,30 +339,56 @@ def generate_operator_report(catalogs: Dict[str, Dict], result: Dict,
 def generate_summary_report(plan: Dict, output_dir: str) -> str:
     """Write the cluster-level summary page linking each operator report."""
     cluster = plan['cluster']
+    ocp_path = cluster['ocp_path']
     verdict = plan['verdict']
     badge = (f'<span class="badge {VERDICT_CLASS.get(verdict, "")}">'
              f'{VERDICT_LABEL.get(verdict, verdict)}</span>')
 
-    n_phases = max((len(o['phases']) for o in plan['operators']), default=0)
-    head = "".join(f"<th>Phase {i+1}</th>" for i in range(n_phases))
+    # Columns are OCP releases, not phase numbers. A phase index means
+    # different things for different operators - a pinned operator's first
+    # phase happens after the first hop, a floating operator's before it - so
+    # numbering them side by side would compare unlike things.
+    head = ""
+    for i, ocp in enumerate(ocp_path):
+        if i < len(ocp_path) - 1:
+            sub = f"then upgrade cluster to {ocp_path[i + 1]}"
+        else:
+            sub = "cluster upgrade complete"
+        head += (f'<th>While on OCP {ocp}'
+                 f'<div class="th-sub">{sub}</div></th>')
 
     rows = ""
     for op in plan['operators']:
         v = op['verdict']
+        by_release = {}
+        for ph in op['phases']:
+            by_release.setdefault(ph['on_ocp'], []).append(ph)
+
         cells = ""
-        for i in range(n_phases):
-            if i < len(op['phases']):
-                ph = op['phases'][i]
+        for ocp in ocp_path:
+            phases = by_release.get(ocp)
+            if not phases:
+                cells += '<td class="cell-none">&mdash;</td>'
+                continue
+            parts = []
+            for ph in phases:
                 if ph['status'] == 'no_action':
-                    cells += '<td style="color:#4caf50">&#10003; no action</td>'
+                    parts.append('<span class="cell-ok">&#10003; no action</span>')
                 elif ph['status'] in ('blocked', 'unreachable'):
-                    cells += f'<td style="color:#e05252">{ph["status"]}</td>'
+                    parts.append(f'<span class="cell-bad">{ph["status"]}</span>')
                 else:
-                    cells += (f"<td>{ph['to']['channel']}<br>"
-                              f"<strong>{ph['to']['version']}</strong> "
-                              f"({ph['hops']} hop{'s' if ph['hops'] != 1 else ''})</td>")
-            else:
-                cells += '<td style="color:#aaa">&mdash;</td>'
+                    when = ('before the hop' if ph['kind'] == 'pre-upgrade'
+                            else 'on arrival')
+                    if ph['hops']:
+                        what = (f"{ph['hops']} upgrade"
+                                + ('s' if ph['hops'] != 1 else ''))
+                    else:
+                        what = 'channel switch only'
+                    parts.append(
+                        f'{ph["to"]["channel"]}<br><strong>{ph["to"]["version"]}'
+                        f'</strong><div class="cell-sub">{what}, {when}</div>')
+            cells += '<td>' + '<hr class="cell-rule">'.join(parts) + '</td>'
+
         rows += (f'<tr><td><a href="{op["operator"]}/index.html">'
                  f'{op["operator"]}</a></td>'
                  f'<td>{op["input"]["channel"]}<br>'
@@ -372,7 +408,7 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
 ({cluster['channel']} channel)</div>
 <table class="info">
   <tr><td class="label">Overall verdict</td><td>{badge}</td></tr>
-  <tr><td class="label">Cluster path</td><td>{' &rarr; '.join(cluster['ocp_path'])}</td></tr>
+  <tr><td class="label">Cluster path</td><td>{' &rarr; '.join(ocp_path)}</td></tr>
   <tr><td class="label">Operators analysed</td><td>{len(plan['operators'])}</td></tr>
   {listing(plan['blocking_operators'], 'Blocking', 'bad')}
   {listing(plan['manual_review_operators'], 'Manual review', 'warn')}
@@ -380,6 +416,11 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
 </table>
 
 <h2 style="margin-top:30px">Operators</h2>
+<div class="legend">Each column is the OCP release the cluster is running when
+that operator work happens. The cluster upgrade itself happens between columns.
+<em>Before the hop</em> means the operator must be moved before the cluster can
+leave that release; <em>on arrival</em> means it is moved once the cluster has
+landed there.</div>
 <table class="ops">
   <tr><th>Operator</th><th>Installed</th><th>Verdict</th>{head}</tr>
   {rows}
