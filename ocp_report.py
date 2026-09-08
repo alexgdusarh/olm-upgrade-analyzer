@@ -403,7 +403,7 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
                 + "".join(f'<span class="badge {cls}">{n}</span>' for n in names)
                 + '</td></tr>')
 
-    body = f"""<h1>Cluster upgrade plan</h1>
+    body = f"""<h1>Cluster Operator Upgrade Plan</h1>
 <div class="subtitle">OCP {cluster['current']} &rarr; {cluster['target']}
 ({cluster['channel']} channel)</div>
 <table class="info">
@@ -429,5 +429,5 @@ landed there.</div>
     out = Path(output_dir) / 'html'
     out.mkdir(parents=True, exist_ok=True)
     path = out / 'index.html'
-    path.write_text(_page("Cluster upgrade plan", body))
+    path.write_text(_page("Cluster Operator Upgrade Plan", body))
     return str(path)

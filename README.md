@@ -294,6 +294,6 @@ ocp_upgrade_planner.py    cluster planner CLI
 ocp_planner.py            planning engine
 ocp_report.py             HTML reports
 operator_interactive.py   single-catalog analyzer
-docs/ALGORITHM_DOCUMENTATION.md
-examples/                 sample input and generated reports
+examples/cluster.json     input template
+requirements.txt
 ```
