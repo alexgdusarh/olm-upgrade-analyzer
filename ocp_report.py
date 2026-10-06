@@ -204,6 +204,7 @@ table.ops th { vertical-align:top; }
 .cell-sub { font-size:11.5px; color:#777; margin-top:3px; }
 .cell-ok { color:#4caf50; } .cell-bad { color:#e05252; }
 .cell-none { color:#bbb; text-align:center; }
+.cell-meta { color:#8a6100; font-size:12.5px; }
 .cell-rule { border:none; border-top:1px dashed #ddd; margin:8px 0; }
 .legend { font-size:13px; color:#666; background:#f7f7fa; border-left:3px solid #ccd;
           padding:11px 14px; border-radius:4px; margin-bottom:14px; }
@@ -232,8 +233,14 @@ def _phase_html(catalog: Dict, pkg: str, phase: Dict) -> str:
     frm, to = phase['from'], phase['to']
     if phase['kind'] == 'intermediate':
         kind = 'Intermediate catalog'
-        purpose = ("The target catalog does not cover the installed version. "
-                   "Mirror and deploy this catalog, and upgrade from it first.")
+        if phase.get('reason') == 'release_pinned':
+            purpose = ("Release-pinned operator: upgraded with the cluster to "
+                       "this release's version, as the strict EUS path "
+                       "requires. Mirror and deploy this catalog.")
+        else:
+            purpose = ("The target catalog does not cover the installed "
+                       "version. Mirror and deploy this catalog, and upgrade "
+                       "from it first.")
     else:
         kind = 'Target catalog'
         purpose = "The catalog every operator is checked against first."
@@ -358,7 +365,7 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
         for ocp in ocp_path:
             ph = by_catalog.get(ocp)
             if not ph:
-                cells += '<td class="cell-none">&mdash;</td>'
+                cells += _no_phase_cell(op, ocp_path)
             elif ph['status'] == 'no_action':
                 cells += '<td><span class="cell-ok">&#10003; no action</span></td>'
             else:
@@ -417,6 +424,19 @@ must be mirrored and deployed too.</div>
     path.write_text(_page(cluster.get('name') or "Cluster Operator Upgrade Plan",
                           body))
     return str(path)
+
+
+def _no_phase_cell(op: Dict, ocp_path: List[str]) -> str:
+    """
+    A catalog column the operator is not upgraded from. When the installed
+    bundle declares olm.maxOpenShiftVersion, say which releases it supports
+    rather than leaving a bare dash.
+    """
+    top = op.get('max_ocp_version')
+    if not top:
+        return '<td class="cell-none">&mdash;</td>'
+    return (f'<td class="cell-meta">metadata maxOpenShiftVersion {top}'
+            f'<div class="cell-sub">supports {ocp_path[0]} to {top}</div></td>')
 
 
 def _mirror_html(plan: Dict) -> str:

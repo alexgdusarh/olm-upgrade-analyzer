@@ -166,6 +166,13 @@ catalogs a disconnected cluster must mirror.
 - `skips` is now an upgrade edge alongside `replaces` and `skipRange`.
 - An EUS path must start on an even minor, since EUS releases are the even
   ones.
+- Release-pinned operators (versions tracking the OCP release, e.g. nfd,
+  kubevirt-hyperconverged, ODF) follow the strict EUS path: each release's own
+  version from that release's catalog, so the intermediate catalog is required
+  even when a target bundle's skipRange would allow the jump.
+- In the summary matrix, a catalog column an operator is not upgraded from
+  shows the installed bundle's `maxOpenShiftVersion` and the releases it
+  supports, instead of a dash, when the metadata declares one.
 - Outputs go to `<output-dir>/<cluster_name>/` (html, `imageset-config.yaml`
   and `plan.json`), taking `cluster_name` (or `cluster-name`) from the input,
   so 150+ clusters can share one output directory. `--output-dir` defaults to

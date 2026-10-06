@@ -119,7 +119,7 @@ forwards hop by hop:
 |---------|------|
 | `no_action_required` | The target catalog still ships the installed bundle, and `max_ocp_version` reaches the target. A newer version is noted as optional |
 | `operator_upgrade_required` | Covered by the target catalog, but the installed channel/version is gone from it, or `max_ocp_version` is below the target. The upgrade comes from the target catalog |
-| `intermediate_catalog_required` | **CRITICAL.** The target catalog does not cover the installed version; the intermediate catalog is named |
+| `intermediate_catalog_required` | **CRITICAL.** The target catalog does not cover the installed version, or the operator is release-pinned on an EUS path; the intermediate catalog is named |
 | `blocked` | The package is gone from the target catalog |
 | `manual_review` | The operator is not in its catalog image, or no combination of catalogs covers it |
 
@@ -138,9 +138,20 @@ advanced-cluster-management, installed release-2.12 / 2.12.8
      from 4.20: release-2.15 2.15.0 -> release-2.17 2.17.1
 ```
 
-Release-pinned operators — `odf-operator` 4.18.x on OCP 4.18 and the rest of
-the ODF family, detected from the version data — aim for the target release's
-channel head rather than the highest version overall.
+**Release-pinned operators follow the strict EUS path.** An operator whose
+versions track the OCP release — `odf-operator` 4.18.x on OCP 4.18, `nfd`,
+`kubernetes-nmstate-operator`, `kubevirt-hyperconverged`, detected from the
+version data — is upgraded with the cluster: each release's own version from
+that release's catalog, in turn, even when a target bundle's skipRange would
+allow the jump. On an EUS path that always needs the intermediate catalog:
+
+```
+nfd, installed stable / 4.18.0-202602261953, OCP 4.18 -> 4.20 EUS
+
+  from 4.19: stable 4.19.0-202609200358
+  from 4.20: stable 4.20.0-202609201357
+  -> intermediate_catalog_required: mirror the 4.19 catalog for it too
+```
 
 ### oc-mirror configuration
 
@@ -227,7 +238,9 @@ output/
 ```
 
 The cluster summary has one column per catalog and lists the catalogs to
-mirror; the per-operator report has one row group per catalog the operator is
+mirror. A column an operator is not upgraded from shows the installed bundle's
+`maxOpenShiftVersion` when it declares one ("supports 4.18 to 4.19"), and a
+dash otherwise; the per-operator report has one row group per catalog the operator is
 upgraded from — info table, graph, steps.
 
 A shared catalog only grows: a cluster needing packages it lacks pulls it

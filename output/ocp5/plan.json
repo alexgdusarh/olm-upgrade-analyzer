@@ -47,6 +47,7 @@
         {
           "phase": 1,
           "kind": "target",
+          "reason": "not_covered",
           "on_ocp": "4.20",
           "status": "no_action",
           "from": {
@@ -88,6 +89,7 @@
         {
           "phase": 1,
           "kind": "target",
+          "reason": "not_covered",
           "on_ocp": "4.20",
           "status": "upgrade_required",
           "from": {

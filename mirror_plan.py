@@ -14,6 +14,13 @@ catalog, so every operator is judged against that catalog first:
        catalog must be mirrored and deployed as well, and the operator
        upgraded from it before the target catalog takes over.
 
+Release-pinned operators, whose versions track the OCP release (odf-operator
+4.18.x on OCP 4.18, nfd, kubevirt-hyperconverged, ...), are the exception. They
+are upgraded with the cluster, so they follow the strict EUS path: each
+release's own version, from that release's catalog, in turn - 4.19.z from the
+4.19 catalog, then 4.20.z from the 4.20 catalog - even when a target bundle's
+skipRange would allow the jump. The intermediate catalog is then always needed.
+
 Verdicts:
 
     no_action_required             the target catalog still ships the installed
@@ -22,7 +29,8 @@ Verdicts:
     operator_upgrade_required      covered by the target catalog, but the
                                    installed channel/version is gone from it, or
                                    its max_ocp_version is below the target
-    intermediate_catalog_required  the target catalog does not cover it (CRITICAL)
+    intermediate_catalog_required  the target catalog does not cover it, or it
+                                   is release-pinned on an EUS path (CRITICAL)
     blocked                        the package is gone from the target catalog
     manual_review                  not identified, or no catalog combination
                                    covers it
@@ -158,6 +166,34 @@ def _search(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
     return None
 
 
+def _pinned_path(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
+                 start: Tuple[str, str]):
+    """
+    The strict EUS path of a release-pinned operator: (catalogs, steps).
+
+    For each release after the current one, the operator lands on that
+    release's channel head using that release's catalog, or, failing that,
+    the previous release's catalog first. None when a release has no version
+    of its own for the operator, or its head cannot be reached.
+    """
+    steps, used, current = [], [], start
+    for i, ocp in enumerate(ocp_path[1:], 1):
+        head = release_channel(catalogs[ocp], pkg, ocp, prefer=current[0])
+        if head is None:
+            return None
+        for names in ([ocp], [ocp_path[i - 1], ocp]):
+            hop = _staged_path([(o, catalogs[o]) for o in names], pkg,
+                               current, head)
+            if hop is not None:
+                break
+        else:
+            return None
+        steps += hop
+        used += [o for o in names if o not in used]
+        current = head
+    return sorted(used, key=parse_ocp), steps
+
+
 def _max_ocp_below(max_ocp_version: str, target: str) -> bool:
     if not max_ocp_version:
         return False
@@ -168,7 +204,7 @@ def _max_ocp_below(max_ocp_version: str, target: str) -> bool:
 
 
 def _phases(steps: List[Dict], catalogs_used: List[str],
-            start: Tuple[str, str]) -> List[Dict]:
+            start: Tuple[str, str], reason: str = 'not_covered') -> List[Dict]:
     """One phase per catalog the operator is upgraded from, in order."""
     phases = []
     current = start
@@ -179,6 +215,7 @@ def _phases(steps: List[Dict], catalogs_used: List[str],
         phases.append({
             'phase': len(phases) + 1,
             'kind': 'target' if ocp == catalogs_used[-1] else 'intermediate',
+            'reason': reason,
             'on_ocp': ocp,
             'status': 'upgrade_required' if mine else 'no_action',
             'from': {'channel': current[0], 'version': current[1]},
@@ -239,6 +276,29 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
         return result
 
     goal = target_goal(catalogs, ocp_path, pkg, start)
+
+    if result['version_pinned'] and len(ocp_path) > 2:
+        pinned = _pinned_path(catalogs, ocp_path, pkg, start)
+        if pinned is not None:
+            used, steps = pinned
+            chain = ' -> '.join(
+                [ver] + [f"{s['to_version']} ({s['catalog']})" for s in steps
+                         if s['via'] != 'channel-switch'])
+            result['notes'].append(
+                f"CRITICAL: '{pkg}' is release-pinned, so it is upgraded with "
+                f"the cluster on the strict EUS path: {chain}. The "
+                f"{' and '.join(used[:-1])} catalog must also be mirrored and "
+                f"deployed.")
+            end = (steps[-1]['to_channel'], steps[-1]['to_version'])
+            result.update(verdict=INTERMEDIATE, catalogs=used, steps=steps,
+                          goal={'channel': end[0], 'version': end[1]},
+                          phases=_phases(steps, used, start, 'release_pinned'))
+            return result
+        result['notes'].append(
+            f"'{pkg}' is release-pinned, but no step through each release's "
+            f"own version was found; planned against the target catalog "
+            f"instead. Verify manually.")
+
     found = _search(catalogs, ocp_path, pkg, start, goal)
     if found is None:
         result['notes'].append(
