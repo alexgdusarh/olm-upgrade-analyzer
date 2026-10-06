@@ -209,6 +209,18 @@ table.ops th { vertical-align:top; }
 .cell-none { color:#bbb; text-align:center; }
 .cell-meta { color:#555; font-size:12.5px; }
 .cell-opt { color:#3f51b5; }
+.vendor-row td { background:#fafbff; padding:6px 14px 16px; }
+.vendor-box { border:1px solid #d6dbf5; border-radius:8px; padding:12px 14px;
+              background:#fff; }
+.vendor-head { font-size:14px; color:#333; margin-bottom:6px; }
+.vendor-advice { font-size:13px; color:#e05252; font-weight:600; margin:4px 0 8px; }
+table.vendor-table { width:100%; border-collapse:collapse; margin-top:6px; }
+table.vendor-table th { background:#eef0fb; color:#333; font-size:12px; text-align:left;
+                        padding:7px 10px; }
+table.vendor-table td { font-size:13px; padding:6px 10px; border-bottom:1px solid #eee; }
+table.vendor-table tr.vt-installed td { background:#f3f3f3; }
+table.vendor-table tr.vt-recommended td { background:#eef8ee; }
+.vt-ok { color:#2e7d32; } .vt-bad { color:#e05252; }
 .cell-vendor { font-size:11.5px; margin-top:5px; padding-top:4px;
                border-top:1px dashed #ddd; }
 .cell-vendor.ok { color:#4caf50; } .cell-vendor.bad { color:#e05252; }
@@ -224,6 +236,73 @@ code { background:#eef; padding:1px 5px; border-radius:3px; font-size:13px; }
 
 def _cluster_label(cluster: Dict) -> str:
     return f"{cluster['name']} " if cluster.get('name') else ""
+
+
+def _vendor_table(vendor: Dict, ocp_path: List[str]) -> str:
+    """
+    The vendor's support matrix for this cluster's path: every release, its
+    certified z-stream on each OpenShift release of the path, and whether it
+    covers the path, with the installed and recommended releases marked.
+    """
+    need = vendor.get('required') or {}
+    head = ''
+    for i, ocp in enumerate(ocp_path):
+        req = need.get(ocp)
+        sub = f'&ge; {req}' if req else 'listed'
+        role = ('current' if i == 0 else 'target' if i == len(ocp_path) - 1
+                else 'intermediate')
+        head += (f'<th>OCP {ocp}<div class="th-sub">{role}, {sub}</div></th>')
+    rows = ''
+    for rel in vendor['table']:
+        tags = ''
+        if rel['installed']:
+            tags += '<span class="badge grey">installed</span>'
+        if rel['recommended'] and not rel['installed']:
+            tags += '<span class="badge ok">recommended</span>'
+        cells = ''
+        for ocp in ocp_path:
+            c = rel['openshift'][ocp]
+            if c['certified'] is None:
+                cells += '<td class="vt-bad">&#10007; not certified</td>'
+            elif c['ok']:
+                cells += f'<td class="vt-ok">&#10003; {c["certified"]}</td>'
+            else:
+                cells += f'<td class="vt-bad">&#10007; {c["certified"]}</td>'
+        result = ('<span class="vt-ok">covers the path</span>' if rel['covers']
+                  else '<span class="vt-bad">does not cover</span>')
+        cls = (' class="vt-installed"' if rel['installed'] else
+               ' class="vt-recommended"' if rel['recommended'] else '')
+        rows += (f'<tr{cls}><td><strong>{rel["version"]}</strong> {tags}</td>'
+                 f'<td>{rel["operator_min"]}+</td>{cells}<td>{result}</td></tr>')
+
+    status = {'ok': ('ok', 'certified for this path'),
+              'blocked': ('bad', 'blocks the upgrade'),
+              'unknown': ('warn', 'installed release unknown')}[vendor['status']]
+    installed = vendor['installed'] or 'unknown'
+    advice = ''
+    rec = vendor.get('recommended')
+    if vendor['status'] == 'blocked' and rec:
+        if rec['version'] == vendor['installed']:
+            advice = (f"Upgrade the operator to {rec['operator_min']} or later "
+                      f"before the cluster upgrade.")
+        else:
+            advice = (f"Upgrade {vendor['label']} to {rec['version']} with "
+                      f"operator {rec['operator_min']} or later before the "
+                      f"cluster upgrade.")
+    elif vendor['status'] == 'unknown':
+        advice = ("Add the installed release to the input "
+                  "(component_versions) to check it.")
+    return f"""<div class="vendor-box">
+  <div class="vendor-head"><strong>{vendor['label']} support matrix</strong>
+    &mdash; installed {installed}, operator {vendor['operator_version']}
+    <span class="badge {status[0]}">{status[1]}</span>
+    <a href="{vendor['source']}">source</a></div>
+  {f'<div class="vendor-advice">{advice}</div>' if advice else ''}
+  <table class="vendor-table">
+    <tr><th>{vendor['label']}</th><th>Operator</th>{head}<th>Result</th></tr>
+    {rows}
+  </table>
+</div>"""
 
 
 def _vendor_row(vendor: Optional[Dict]) -> str:
@@ -360,6 +439,10 @@ def generate_operator_report(catalogs: Dict[str, Dict], result: Dict,
     else:
         phases = '<div class="none">No phases planned.</div>'
 
+    if result.get('vendor'):
+        header += ('<h2 style="margin-top:24px">Vendor support matrix</h2>'
+                   + _vendor_table(result['vendor'], ocp_path))
+
     notes = ""
     if result['notes']:
         items = "".join(f"<li>{n}</li>" for n in result['notes'])
@@ -409,6 +492,9 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
                  f'</strong></td>'
                  f'<td><span class="badge {VERDICT_CLASS.get(v, "")}">'
                  f'{VERDICT_LABEL.get(v, v)}</span></td>{cells}</tr>')
+        if op.get('vendor'):
+            rows += (f'<tr class="vendor-row"><td colspan="{3 + len(ocp_path)}">'
+                     f'{_vendor_table(op["vendor"], ocp_path)}</td></tr>')
 
     def listing(names, label, cls):
         if not names:

@@ -112,7 +112,38 @@ def _recommend(releases: List[Dict], ocp_path: List[str], need: Dict,
 def evaluate(constraint: Dict, ocp_path: List[str], current: str, target: str,
              component_version: Optional[str],
              operator_version: str) -> Dict:
-    """Check one operator against its vendor support matrix."""
+    """
+    Check one operator against its vendor support matrix.
+
+    Besides the verdict, the result carries the whole matrix for this path as
+    'table' - every release with its certified z-stream per OpenShift release
+    on the path, whether it covers the path, and which release is installed
+    and which recommended - since that is what a reader acts on.
+    """
+    res = _evaluate(constraint, ocp_path, current, target, component_version,
+                    operator_version)
+    need = _required(ocp_path, current, target)
+    res['required'] = need
+    rec = (res.get('recommended') or {}).get('version')
+    table = []
+    for rel in sorted(constraint['releases'], key=lambda r: _v(r['version'])):
+        cells = _covers(rel, ocp_path, need)
+        table.append({
+            'version': rel['version'],
+            'operator_min': _operator_min(rel, ocp_path),
+            'openshift': cells,
+            'covers': all(c['ok'] for c in cells.values()),
+            'installed': bool(component_version)
+                         and _v(rel['version']) == _v(component_version),
+            'recommended': bool(rec) and _v(rel['version']) == _v(rec),
+        })
+    res['table'] = table
+    return res
+
+
+def _evaluate(constraint: Dict, ocp_path: List[str], current: str,
+              target: str, component_version: Optional[str],
+              operator_version: str) -> Dict:
     label = constraint.get('label') or constraint['component']
     releases = constraint['releases']
     need = _required(ocp_path, current, target)

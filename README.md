@@ -223,7 +223,20 @@ portworx-certified, Portworx Enterprise 3.6.0, OCP 4.18.14 -> 4.20.34 EUS
      later before the cluster upgrade (certified 4.18.54, 4.19.45, 4.20.36)
 ```
 
-Each matrix column shows the vendor's verdict for that release.
+Under the operator's row the summary adds the vendor's whole support matrix
+for this path, and the operator page repeats it: every release with its
+certified z-stream on each OpenShift release of the path, whether it covers
+the path, and the installed and recommended releases marked. Each matrix
+column also shows the vendor's verdict for that release. The plan JSON
+carries it as `vendor.table`.
+
+```
+Portworx Enterprise | Operator | 4.18 (>= 4.18.14) | 4.19 (listed) | 4.20 (>= 4.20.34) | Result
+3.5.3               | 25.5.1+  | 4.18.54           | 4.19.45       | 4.20.36           | covers
+3.6.0  installed    | 26.1.0+  | 4.18.42           | 4.19.31       | 4.20.23  x        | does not cover
+3.6.1               | 26.2.0+  | 4.18.46           | 4.19.35       | 4.20.27  x        | does not cover
+3.6.2  recommended  | 26.3.0+  | 4.18.54           | 4.19.45       | 4.20.36           | covers
+```
 
 ### oc-mirror configuration
 

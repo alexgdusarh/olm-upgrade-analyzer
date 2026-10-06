@@ -174,7 +174,10 @@ catalogs a disconnected cluster must mirror.
   on every OpenShift release of the path, up to the z-stream for the current
   and target releases, with its operator minimum met. Otherwise the operator
   blocks the upgrade and the lowest covering release at or above the
-  installed one is recommended. Each matrix column shows the vendor verdict.
+  installed one is recommended. The summary shows the vendor's whole support
+  matrix for the path under the operator's row, and the operator page repeats
+  it, with the installed and recommended releases marked; each matrix column
+  shows the vendor verdict.
 - Report graphs are deterministic: the SVG has fixed element ids and no
   timestamp, so rerunning on the same data leaves the reports unchanged.
 - An EUS path must start on an even minor, since EUS releases are the even
