@@ -173,8 +173,10 @@ catalogs a disconnected cluster must mirror.
 - In the summary matrix, a catalog column an operator is not upgraded from
   validates the bundle it is on by then instead of showing a dash: its
   declared `maxOpenShiftVersion` ("supports 4.18 to X"); else, when that
-  catalog ships the same channel and version, "no action"; else the upgrade to
-  a newer version of its channel; else a warning, also in the operator's
+  catalog ships the same channel and version, "no action"; else, when it ships
+  the target's planned version, the planned upgrade on that release, with the
+  target column then "no action, upgraded on" it; else the upgrade to a newer
+  version of its channel; else a warning, also in the operator's
   notes, as when no bundle metadata is available or the operator is not found.
   The result is in the plan JSON as `columns`. An empty input
   `max_ocp_version` falls back to the installed bundle's value in the pulled

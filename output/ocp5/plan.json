@@ -137,7 +137,8 @@
               "to_version": "1.20.1",
               "via": "skipRange"
             }
-          ]
+          ],
+          "done_on": "4.19"
         }
       ],
       "steps": [
@@ -159,7 +160,8 @@
         }
       ],
       "notes": [
-        "1.19.2 (channel stable-v1) is not in the 4.20 catalog, which upgrades it to 1.20.1 (channel stable-v1)."
+        "1.19.2 (channel stable-v1) is not in the 4.20 catalog, which upgrades it to 1.20.1 (channel stable-v1).",
+        "Upgrade while the cluster is on 4.19: 1.19.2 (channel stable-v1) is not in the 4.19 catalog, but the planned 1.20.1 (channel stable-v1) is. The bundles still come from the 4.20 catalog."
       ],
       "bundle_metadata": true,
       "goal": {
@@ -179,7 +181,10 @@
           "version": "1.19.2",
           "max_ocp_version": null,
           "newer": "1.20.1",
-          "state": "newer"
+          "state": "upgrade",
+          "to_channel": "stable-v1",
+          "to_version": "1.20.1",
+          "hops": 2
         }
       },
       "input_name": "openshift-cert-manager-operator",

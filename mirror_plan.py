@@ -483,6 +483,10 @@ def column_checks(catalogs: Dict[str, Dict], ocp_path: List[str],
                  upgrade is shown
         missing  neither, and the metadata declares no max: a warning
         unknown  neither, and no bundle metadata is available: a warning
+        upgrade  the bundle is not shipped here, but the target catalog's
+                 planned version is: the planned upgrade happens by this
+                 release, still from the target catalog's bundles, and the
+                 target phase is marked done_on this release
 
     Also adds a warning note naming the releases left unvalidated.
     """
@@ -492,9 +496,12 @@ def column_checks(catalogs: Dict[str, Dict], ocp_path: List[str],
     chan = inp.get('resolved_channel', inp['channel'])
     ver = inp.get('resolved_version', inp['version'])
     top = result.get('max_ocp_version') or None
+    final = result['phases'][-1] if result['phases'] else None
     columns = {}
     for ocp in ocp_path:
         ph = by_catalog.get(ocp)
+        if ph and ph.get('done_on'):
+            continue
         if ph:
             if ph['to']['version'] != ph['from']['version']:
                 top = ph['to'].get('max_ocp_version')
@@ -505,10 +512,26 @@ def column_checks(catalogs: Dict[str, Dict], ocp_path: List[str],
                  if version_sort_key(v) > version_sort_key(ver)]
         col = {'channel': chan, 'version': ver, 'max_ocp_version': top,
                'newer': max(newer, key=version_sort_key) if newer else None}
+        planned = (final['to']['channel'], final['to']['version']) if final else None
         if top:
             col['state'] = 'max'
         elif ver in versions:
             col['state'] = 'present'
+        elif (final and final['status'] == 'upgrade_required'
+              and final['on_ocp'] == ocp_path[-1]
+              and planned[1] in catalogs[ocp].get(pkg, {}).get(planned[0], {})):
+            # The installed bundle is gone from this release's catalog but
+            # the planned target version is here: upgrade by this release.
+            col.update(state='upgrade', to_channel=planned[0],
+                       to_version=planned[1], hops=final['hops'])
+            final['done_on'] = ocp
+            result['notes'].append(
+                f"Upgrade while the cluster is on {ocp}: {ver} (channel "
+                f"{chan}) is not in the {ocp} catalog, but the planned "
+                f"{planned[1]} (channel {planned[0]}) is. The bundles still "
+                f"come from the {ocp_path[-1]} catalog.")
+            chan, ver = planned
+            top = final['to'].get('max_ocp_version')
         elif newer:
             col['state'] = 'newer'
         else:

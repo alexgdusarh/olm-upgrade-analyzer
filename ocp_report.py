@@ -251,6 +251,10 @@ def _phase_html(catalog: Dict, pkg: str, phase: Dict) -> str:
     else:
         kind = 'Target catalog'
         purpose = "The catalog every operator is checked against first."
+        if phase.get('done_on'):
+            purpose += (f" Upgrade while the cluster is on {phase['done_on']}"
+                        f": the installed version is no longer in that "
+                        f"release's catalog.")
 
     info = f"""<table class="info">
   <tr><td class="label">Catalog</td><td><strong>OCP {phase['on_ocp']}</strong></td></tr>
@@ -375,6 +379,10 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
             ph = by_catalog.get(ocp)
             if not ph:
                 cells += _no_phase_cell(columns.get(ocp), ocp_path)
+            elif ph.get('done_on'):
+                cells += ('<td><span class="cell-ok">&#10003; no action</span>'
+                          f'<div class="cell-sub">upgraded on {ph["done_on"]}'
+                          '</div></td>')
             elif ph['status'] == 'no_action':
                 cells += '<td><span class="cell-ok">&#10003; no action</span></td>'
             else:
@@ -457,6 +465,12 @@ def _no_phase_cell(col: Optional[Dict], ocp_path: List[str]) -> str:
         return ('<td><span class="cell-ok">&#10003; no action</span>'
                 f'<div class="cell-sub">{col["channel"]} {col["version"]} '
                 f'in this catalog</div>{newer}</td>')
+    if state == 'upgrade':
+        hops = col['hops']
+        what = f"{hops} upgrade" + ('s' if hops != 1 else '')
+        return (f'<td>{col["to_channel"]}<br><strong>{col["to_version"]}'
+                f'</strong><div class="cell-sub">{what} on this release; '
+                f'{col["version"]} not in this catalog</div></td>')
     if state == 'newer':
         return (f'<td>{col["channel"]}<br><strong>{col["newer"]}</strong>'
                 f'<div class="cell-sub">upgrade available; {col["version"]} '

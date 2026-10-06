@@ -265,7 +265,11 @@ on by then, in this order:
 1. its metadata declares `maxOpenShiftVersion`: "supports 4.18 to 4.21"
 2. no max declared, but that catalog ships the same channel and version: it
    works there, "✓ no action" (a newer version of the channel is noted)
-3. not shipped, but a newer version of its channel is: the upgrade is shown
+3. not shipped, but the target catalog's planned version is: the planned
+   upgrade happens on that release, once, and the target column shows
+   "✓ no action, upgraded on 4.19" (the bundles still come from the target
+   catalog); otherwise, if a newer version of its channel is shipped, that
+   upgrade is shown
 4. none of these: a ⚠ warning, also added to the operator's notes; likewise
    when no bundle metadata is available (hand-supplied catalogs) or the
    operator is not found in its catalog image
