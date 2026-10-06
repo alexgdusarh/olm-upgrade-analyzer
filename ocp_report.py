@@ -448,6 +448,12 @@ def _matrix_cell(cell: Dict, ocp_path: List[str]) -> str:
     if kind == 'no_action':
         when = (f'<div class="cell-sub">upgraded on {cell["upgraded_on"]}'
                 f'</div>' if cell.get('upgraded_on') else '')
+        latest = cell.get('available')
+        if latest:
+            chan = (f'{latest["channel"]} ' if latest['channel_changes']
+                    else '')
+            when += (f'<div class="cell-sub">{chan}{latest["version"]} '
+                     f'available (optional)</div>')
         return f'<td><span class="cell-ok">&#10003; no action</span>{when}</td>'
     if kind == 'max':
         top = cell['max_ocp_version']
@@ -455,11 +461,8 @@ def _matrix_cell(cell: Dict, ocp_path: List[str]) -> str:
                 f'<div class="cell-sub">supports {ocp_path[0]} to {top}'
                 f'</div></td>')
     if kind == 'present':
-        newer = (f'<div class="cell-sub">{cell["newer"]} available</div>'
-                 if cell.get('newer') else '')
-        return ('<td><span class="cell-ok">&#10003; no action</span>'
-                f'<div class="cell-sub">{cell["channel"]} {cell["version"]} '
-                f'in this catalog</div>{newer}</td>')
+        # nothing to do here; the optional latest is shown at the target
+        return '<td><span class="cell-ok">&#10003; no action</span></td>'
     if kind == 'missing':
         return ('<td class="cell-warn">&#9888; not in this catalog'
                 '<div class="cell-sub">no maxOpenShiftVersion in metadata'
