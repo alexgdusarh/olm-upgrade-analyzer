@@ -47,13 +47,20 @@ import re
 import sys
 from pathlib import Path
 
-from catalog_fetch import FetchError, fetch_all, load_default_channels, retag
+from catalog_fetch import (
+    FetchError,
+    fetch_all,
+    load_bundle_max_ocp,
+    load_default_channels,
+    retag,
+)
 from mirror_plan import (
     BLOCKED,
     INTERMEDIATE,
     REVIEW,
     UPGRADE,
     build_imageset,
+    declared_max_ocp,
     mirror_sets,
     pick_default_channel,
     plan_operator,
@@ -205,12 +212,16 @@ def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
             print(f"{group['pull_image']}: {len(ocp_path)} catalog(s) from "
                   f"{catalog_dir}", file=sys.stderr)
         catalogs = load_catalogs(catalog_dir, ocp_path, allow_empty=fetched)
+        bundle_max = {o: load_bundle_max_ocp(catalog_dir, o) for o in ocp_path}
 
         group_results = []
         for op in group['operators']:
             if not op['main']:
                 continue
-            res = plan_operator(catalogs, ocp_path, op)
+            res = plan_operator(catalogs, ocp_path, op, bundle_max)
+            for ph in res['phases']:
+                ph['to']['max_ocp_version'] = declared_max_ocp(
+                    bundle_max, ocp_path, res['operator'], ph['to']['version'])
             res['input_name'] = op['name']
             res['catalog_image'] = group['pull_image']
             group_results.append(res)

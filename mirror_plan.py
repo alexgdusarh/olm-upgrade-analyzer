@@ -21,6 +21,13 @@ release's own version, from that release's catalog, in turn - 4.19.z from the
 4.19 catalog, then 4.20.z from the 4.20 catalog - even when a target bundle's
 skipRange would allow the jump. The intermediate catalog is then always needed.
 
+An installed bundle whose olm.maxOpenShiftVersion is below the target cannot
+stay through the jump. When the target catalog covers it, a bundle valid on
+every release of the path is looked for - present in every catalog on it, with
+its own maxOpenShiftVersion reaching the target - and upgraded to from the
+current catalog before the cluster upgrade, so the operator need not move
+during the jump.
+
 Verdicts:
 
     no_action_required             the target catalog still ships the installed
@@ -194,6 +201,51 @@ def _pinned_path(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
     return sorted(used, key=parse_ocp), steps
 
 
+def declared_max_ocp(bundle_max: Dict, ocp_path: List[str], pkg: str,
+                     ver: str) -> Optional[str]:
+    """A bundle's olm.maxOpenShiftVersion as recorded in any pulled catalog."""
+    for o in reversed(ocp_path):
+        top = ((bundle_max or {}).get(o, {}).get(pkg) or {}).get(ver)
+        if top:
+            return top
+    return None
+
+
+def _bridge(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
+            start: Tuple[str, str], bundle_max: Dict):
+    """
+    A bundle valid on every release of the path, reachable from the installed
+    one using the current catalog: (steps, (channel, version), its max).
+
+    It must be present in every catalog on the path, and its own
+    olm.maxOpenShiftVersion, if it declares one, must reach the target.
+    bundle_max is {ocp: {package: {version: max}}}, recorded when the catalogs
+    are pulled; without it nothing can be verified and None is returned. Fewest
+    upgrades first, then the highest version.
+    """
+    target, current = ocp_path[-1], ocp_path[0]
+    known = [bundle_max.get(o, {}).get(pkg) for o in ocp_path]
+    if not any(known):
+        return None
+
+    common = set.intersection(*(tuples_in(catalogs[o], pkg) for o in ocp_path))
+    best, best_cost = None, None
+    for tup in sorted(common, key=_rank, reverse=True):
+        top = declared_max_ocp(bundle_max, ocp_path, pkg, tup[1])
+        try:
+            if top and parse_ocp(top) < parse_ocp(target):
+                continue
+        except ValueError:
+            continue
+        steps = _staged_path([(current, catalogs[current])], pkg, start, tup)
+        if not steps:
+            continue
+        cost = sum(1 for s in steps if s['via'] != 'channel-switch')
+        if best is None or cost < best_cost:
+            best, best_cost = (steps, tup, top), cost
+    return best
+
+
 def _max_ocp_below(max_ocp_version: str, target: str) -> bool:
     if not max_ocp_version:
         return False
@@ -214,7 +266,8 @@ def _phases(steps: List[Dict], catalogs_used: List[str],
                if mine else current)
         phases.append({
             'phase': len(phases) + 1,
-            'kind': 'target' if ocp == catalogs_used[-1] else 'intermediate',
+            'kind': ('target' if ocp == catalogs_used[-1] else
+                     'current' if reason == 'bridge' else 'intermediate'),
             'reason': reason,
             'on_ocp': ocp,
             'status': 'upgrade_required' if mine else 'no_action',
@@ -228,8 +281,13 @@ def _phases(steps: List[Dict], catalogs_used: List[str],
 
 
 def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
-                  op: Dict) -> Dict:
-    """Plan one installed operator against the target catalog first."""
+                  op: Dict, bundle_max: Optional[Dict] = None) -> Dict:
+    """
+    Plan one installed operator against the target catalog first.
+
+    bundle_max is {ocp: {package: {version: olm.maxOpenShiftVersion}}} from
+    the pulled catalogs, used to find a bundle valid across the whole path.
+    """
     target = ocp_path[-1]
     result = {
         'operator': op['name'],
@@ -264,8 +322,7 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
     if too_old:
         result['notes'].append(
             f"The installed bundle declares olm.maxOpenShiftVersion "
-            f"{result['max_ocp_version']}, below the {target} target. It must "
-            f"be upgraded from the {target} catalog.")
+            f"{result['max_ocp_version']}, below the {target} target.")
 
     if not tuples_in(catalogs[target], pkg):
         result.update(verdict=BLOCKED, blocking=True)
@@ -311,6 +368,30 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
     end = (steps[-1]['to_channel'], steps[-1]['to_version']) if steps else start
     in_target = start in tuples_in(catalogs[target], pkg)
 
+    bridge = (_bridge(catalogs, ocp_path, pkg, start, bundle_max or {})
+              if too_old and not extra else None)
+
+    if bridge:
+        b_steps, b_tup, b_top = bridge
+        current = ocp_path[0]
+        result['notes'].append(
+            f"Before the cluster upgrade, upgrade from the current {current} "
+            f"catalog to {b_tup[1]} (channel {b_tup[0]}). It is in every "
+            f"catalog on the path ({', '.join(ocp_path)}) and declares "
+            f"{f'olm.maxOpenShiftVersion {b_top}' if b_top else 'no olm.maxOpenShiftVersion'}"
+            f", so the operator stays valid through the whole upgrade. The "
+            f"{current} and {target} mirrors must carry it.")
+        if end[1] != b_tup[1]:
+            result['notes'].append(
+                f"{end[1]} (channel {end[0]}) is available in the {target} "
+                f"catalog once the cluster is there; upgrading is optional.")
+        result.update(verdict=UPGRADE, catalogs=[current, target],
+                      steps=b_steps,
+                      goal={'channel': b_tup[0], 'version': b_tup[1]},
+                      phases=_phases(b_steps, [current, target], start,
+                                     'bridge'))
+        return result
+
     if extra:
         verdict = INTERMEDIATE
         result['notes'].append(_critical_note(
@@ -331,6 +412,11 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
             f"newer than {ver}. Check manually.")
     else:
         verdict = UPGRADE
+        if too_old:
+            result['notes'].append(
+                f"No bundle valid on every release of the path was found, so "
+                f"it is upgraded from the {target} catalog while the cluster "
+                f"is still on {result['max_ocp_version']} or earlier.")
         if not in_target:
             result['notes'].append(
                 f"{ver} (channel {chan}) is not in the {target} catalog, which "

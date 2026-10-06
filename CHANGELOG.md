@@ -171,8 +171,15 @@ catalogs a disconnected cluster must mirror.
   version from that release's catalog, so the intermediate catalog is required
   even when a target bundle's skipRange would allow the jump.
 - In the summary matrix, a catalog column an operator is not upgraded from
-  shows the installed bundle's `maxOpenShiftVersion` and the releases it
-  supports, instead of a dash, when the metadata declares one.
+  shows the `maxOpenShiftVersion` of the bundle it is on by then, and the
+  releases that supports, instead of a dash, when the metadata declares one.
+- Each bundle's `olm.maxOpenShiftVersion` is recorded when the catalogs are
+  pulled (`packages-v<major>.<minor>.json`); catalogs pulled before are pulled
+  again once.
+- An installed bundle whose `max_ocp_version` is below the target is upgraded,
+  from the current catalog and before the cluster upgrade, to a bundle present
+  in every catalog on the path whose own `maxOpenShiftVersion` reaches the
+  target, when the target catalog covers it.
 - Outputs go to `<output-dir>/<cluster_name>/` (html, `imageset-config.yaml`
   and `plan.json`), taking `cluster_name` (or `cluster-name`) from the input,
   so 150+ clusters can share one output directory. `--output-dir` defaults to

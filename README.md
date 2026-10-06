@@ -90,8 +90,9 @@ oc image extract <image>:v4.19 --filter-by-os=linux/amd64 -a <authfile> \
 The `olm.channel` objects are kept and written as
 `<fetch-dir>/<image>/data-v4.19.json`, the same format as a hand-supplied
 catalog. Each package's default channel is recorded beside it in
-`packages-v4.19.json`. A later run reuses a pulled catalog when it already
-covers every package; `--refresh` pulls again.
+`packages-v4.19.json`, with each bundle's `olm.maxOpenShiftVersion`. A later
+run reuses a pulled catalog when it already covers every package; `--refresh`
+pulls again.
 
 Registry credentials come from `--authfile`, or else from the cluster pull
 secret (`oc extract secret/pull-secret -n openshift-config`), which needs a
@@ -114,6 +115,26 @@ forwards hop by hop:
    the target first (4.19 on a 4.18 to 4.20 EUS path, then 4.18), then two.
    That catalog must be mirrored and deployed as well, and the operator
    upgraded from it before the target catalog takes over. Reported CRITICAL.
+
+**An installed bundle whose `max_ocp_version` is below the target** cannot stay
+through the jump. When the target catalog covers it, a bundle valid on every
+release of the path is looked for: present in every catalog on it, with its own
+`olm.maxOpenShiftVersion` (recorded when the catalogs are pulled) reaching the
+target, and reachable from the installed version with the current catalog. The
+operator is upgraded to it **before the cluster upgrade**, and need not move
+during the jump:
+
+```
+loki-operator, installed stable-6.2 / 6.2.3, maxOpenShiftVersion 4.19
+
+  stable-6.4 6.4.6 is in the 4.18, 4.19 and 4.20 catalogs, max 4.21
+  -> operator_upgrade_required:
+     from 4.18, before the upgrade: stable-6.4 6.4.6
+     from 4.20, optional afterwards: stable-6.6 6.6.1
+```
+
+Without such a bundle it is upgraded from the target catalog while the cluster
+is still on a release the installed bundle supports.
 
 | Verdict | When |
 |---------|------|

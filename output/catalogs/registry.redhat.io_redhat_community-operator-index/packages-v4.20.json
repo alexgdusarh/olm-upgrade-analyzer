@@ -1,6 +1,7 @@
 {
   "grafana-operator": {
     "defaultChannel": "v5",
+    "maxOpenShiftVersion": {},
     "present": true
   }
 }
