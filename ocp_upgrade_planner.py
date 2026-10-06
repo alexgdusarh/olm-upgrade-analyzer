@@ -2,18 +2,19 @@
 """
 OCP cluster upgrade planner - CLI.
 
-Reads a cluster + operator list as JSON, plans the operator upgrades required
-around the cluster upgrade, and writes one HTML report per operator plus a
-cluster summary. Machine-readable JSON goes to stdout.
+Reads the installed operators as JSON, checks each one against the target
+release's catalog first, working backwards to an intermediate catalog only when
+the target does not cover it, and writes one HTML report per operator, a
+cluster summary and an oc-mirror ImageSetConfiguration. Machine-readable JSON
+goes to stdout.
 
     python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json
 
 Input is the catalog mirror check written by ocp_preupgrade_health_check,
 grouped by catalog index image. The catalogs are pulled from those images at
-run time, or read from --catalog-dir, and the operators are also checked
-against the target catalog alone to find what has to be mirrored. Packages
-with main=false are dependencies: they are not planned, but are kept in the
-oc-mirror configuration.
+run time, or read from --catalog-dir. Packages with main=false are
+dependencies: they are not planned, but are kept in the oc-mirror
+configuration.
 
     {
       "cluster": { "current": "4.18.28", "target": "4.20", "channel": "eus",
@@ -31,7 +32,7 @@ Catalog files are named data-v<major>.<minor>.json, one per OCP release.
 Exit codes:
     0  no action required, or operator upgrades are required and planned
     2  manual review required
-    3  at least one operator blocks the cluster upgrade
+    3  an operator is gone from the target catalog
     4  an intermediate catalog must be mirrored as well as the target catalog
     1  usage or input error
 """
@@ -43,18 +44,19 @@ from pathlib import Path
 
 from catalog_fetch import FetchError, fetch_all, load_default_channels, retag
 from mirror_plan import (
-    CRITICAL,
-    OK,
+    BLOCKED,
+    INTERMEDIATE,
+    REVIEW,
+    UPGRADE,
     build_imageset,
-    check_operator,
     mirror_sets,
     pick_default_channel,
+    plan_operator,
 )
 from ocp_planner import (
     build_ocp_path,
     check_catalog_dir,
     load_catalogs,
-    plan_operator,
     catalog_filename,
 )
 from ocp_report import generate_operator_report, generate_summary_report
@@ -119,29 +121,11 @@ def resolve_ocp_path(cluster):
     return current, target, channel, ocp_path
 
 
-def _mirror_group(catalogs, ocp_path, group, results, catalog_dir):
-    """Mirror check for one catalog index. Returns (checks, imageset entries)."""
-    checks = []
+def _imageset_entries(catalogs, ocp_path, group, results, catalog_dir):
+    """oc-mirror catalog entries for one catalog index image."""
     wanted = {}  # ocp -> {pkg: {channel: [versions]}}
-    by_name = {op['name']: op for op in group['operators']}
-
     for res in results:
-        op = by_name[res['input_name']]
-        entry = {'operator': res['operator'], 'catalog_image': group['pull_image']}
-        if res['verdict'] == 'manual_review' and not res['phases']:
-            entry.update({'status': 'unresolved', 'catalogs': [],
-                          'steps': [], 'notes': [
-                              "Not checked: the installed operator could not be "
-                              "matched in the current catalog."]})
-            checks.append(entry)
-            continue
-        start = (res['input'].get('resolved_channel') or res['input']['channel'],
-                 res.get('resolved_version') or res['input']['version'])
-        chk = check_operator(catalogs, ocp_path, res['operator'], start,
-                             op['max_ocp_version'])
-        entry.update(chk)
-        checks.append(entry)
-        for ocp, chans in mirror_sets(chk).items():
+        for ocp, chans in mirror_sets(res).items():
             slot = wanted.setdefault(ocp, {}).setdefault(res['operator'], {})
             for chan, versions in chans.items():
                 slot.setdefault(chan, []).extend(versions)
@@ -171,15 +155,15 @@ def _mirror_group(catalogs, ocp_path, group, results, catalog_dir):
                              'comment': f"dependency of {by}; channel head"})
         entries.append({'catalog': retag(group['pull_image'], ocp),
                         'packages': packages})
-    return checks, entries
+    return entries
 
 
 def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
         fetched=False):
     """
     catalog_dirs maps each group's pull_image to the directory holding its
-    catalogs. fetched marks catalogs pulled at
-    run time, which are empty when the image carries none of the packages.
+    catalogs. fetched marks catalogs pulled at run time, which are empty when
+    the image carries none of the packages.
     """
     cluster, groups = parse_payload(payload)
     current, target, channel, ocp_path = resolve_ocp_path(cluster)
@@ -191,86 +175,73 @@ def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
         print(f"Path:    {' -> '.join(ocp_path)}", file=sys.stderr)
 
     results = []
-    checks = []
     imageset = []
     for group in groups:
         catalog_dir = catalog_dirs[group['pull_image']]
         if not quiet:
             print(f"{group['pull_image']}: {len(ocp_path)} catalog(s) from "
-                  f"{catalog_dir}",
-                  file=sys.stderr)
+                  f"{catalog_dir}", file=sys.stderr)
         catalogs = load_catalogs(catalog_dir, ocp_path, allow_empty=fetched)
 
         group_results = []
         for op in group['operators']:
             if not op['main']:
                 continue
-            res = plan_operator(catalogs, ocp_path, op['name'],
-                                op['channel'], op['version'])
+            res = plan_operator(catalogs, ocp_path, op)
             res['input_name'] = op['name']
             res['catalog_image'] = group['pull_image']
             group_results.append(res)
             if not quiet:
-                pre = sum(p['hops'] for p in res['phases']
-                          if p['kind'] == 'pre-upgrade')
-                print(f"  {op['name']:42} {res['verdict']:28} "
-                      f"{pre} upgrade(s) before cluster move", file=sys.stderr)
+                print(f"  {op['name']:44} {res['verdict']:30} catalogs "
+                      f"{', '.join(res['catalogs']) or '-'}", file=sys.stderr)
 
-        g_checks, g_entries = _mirror_group(
-            catalogs, ocp_path, group, group_results, catalog_dir)
-        checks += g_checks
-        imageset += g_entries
-        if not quiet:
-            for c in g_checks:
-                print(f"  {c['operator']:42} mirror {c['status']:10} "
-                      f"catalogs {', '.join(c['catalogs']) or '-'}",
-                      file=sys.stderr)
-
+        imageset += _imageset_entries(catalogs, ocp_path, group,
+                                      group_results, catalog_dir)
         for res in group_results:
             res['html'] = generate_operator_report(
                 catalogs, res, cluster_info, output_dir)
         results += group_results
 
-    blocking = [r['operator'] for r in results if r['blocking']]
-    review = [r['operator'] for r in results if r['verdict'] == 'manual_review']
-    upgrades = [r['operator'] for r in results
-                if r['verdict'] == 'operator_upgrade_required']
+    def named(verdict):
+        return [r['operator'] for r in results if r['verdict'] == verdict]
+
+    blocking = named(BLOCKED)
+    intermediate = named(INTERMEDIATE)
+    review = named(REVIEW)
+    upgrades = named(UPGRADE)
 
     if blocking:
-        verdict = 'blocked'
+        verdict = BLOCKED
+    elif intermediate:
+        verdict = INTERMEDIATE
     elif review:
-        verdict = 'manual_review'
+        verdict = REVIEW
     elif upgrades:
-        verdict = 'operator_upgrade_required'
+        verdict = UPGRADE
     else:
         verdict = 'no_action_required'
+
+    to_mirror = {}
+    for entry in imageset:
+        ocp = entry['catalog'].rsplit(':v', 1)[-1]
+        to_mirror.setdefault(ocp, []).append(entry['catalog'])
+
+    path = Path(imageset_out or Path(output_dir) / 'imageset-config.yaml')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(build_imageset(imageset))
 
     plan = {
         'cluster': cluster_info,
         'verdict': verdict,
         'blocking_operators': blocking,
+        'intermediate_catalog_operators': intermediate,
         'manual_review_operators': review,
         'operators_requiring_upgrade': upgrades,
         'catalogs': {o: catalog_filename(o) for o in ocp_path},
+        'catalogs_to_mirror': to_mirror,
+        'imageset_config': str(path),
         'operators': results,
     }
-
-    critical = [c['operator'] for c in checks if c['status'] != OK]
-    to_mirror = {}
-    for entry in imageset:
-        ocp = entry['catalog'].rsplit(':v', 1)[-1]
-        to_mirror.setdefault(ocp, []).append(entry['catalog'])
-    plan['mirror'] = {
-        'verdict': CRITICAL if critical else OK,
-        'critical_operators': critical,
-        'catalogs_to_mirror': to_mirror,
-        'operators': checks,
-    }
-    path = Path(imageset_out or Path(output_dir) / 'imageset-config.yaml')
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_imageset(imageset))
-    plan['mirror']['imageset_config'] = str(path)
-
     plan['summary_html'] = generate_summary_report(plan, output_dir)
     return plan
 
@@ -367,16 +338,11 @@ Examples:
 
     if not args.quiet:
         print(f"\nSummary: {plan['summary_html']}", file=sys.stderr)
-        print(f"oc-mirror: {plan['mirror']['imageset_config']}",
-              file=sys.stderr)
+        print(f"oc-mirror: {plan['imageset_config']}", file=sys.stderr)
 
-    if plan['verdict'] == 'blocked':
-        return EXIT_BLOCKED
-    if plan['mirror']['verdict'] == CRITICAL:
-        return EXIT_CRITICAL
-    if plan['verdict'] == 'manual_review':
-        return EXIT_REVIEW
-    return EXIT_OK
+    return {BLOCKED: EXIT_BLOCKED,
+            INTERMEDIATE: EXIT_CRITICAL,
+            REVIEW: EXIT_REVIEW}.get(plan['verdict'], EXIT_OK)
 
 
 if __name__ == '__main__':

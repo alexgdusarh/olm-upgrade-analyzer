@@ -59,27 +59,22 @@ code { background:#eef; padding:1px 5px; border-radius:3px; font-size:13px; }
   <tr><td class="label">Operators analysed</td><td>2</td></tr>
   
   
+  
   <tr><td class="label">Upgrade required</td><td><span class="badge warn">openshift-cert-manager-operator</span></td></tr>
 </table>
 
 <h2 style="margin-top:30px">Operators</h2>
-<div class="legend">Each column is the OCP release the cluster is running when
-that operator work happens. The cluster upgrade itself happens between columns.
-<em>Before the hop</em> means the operator must be moved before the cluster can
-leave that release; <em>on arrival</em> means it is moved once the cluster has
-landed there.</div>
+<div class="legend">Every operator is checked against the target catalog first:
+it is covered when that catalog still ships the installed version, or has a
+skipRange, replaces or skips edge from it. Only when it is not covered does an
+earlier catalog appear, working backwards from the target, and that catalog
+must be mirrored and deployed too.</div>
 <table class="ops">
-  <tr><th>Operator</th><th>Installed</th><th>Verdict</th><th>While on OCP 4.18<div class="th-sub">then upgrade cluster to 4.19</div></th><th>While on OCP 4.19<div class="th-sub">then upgrade cluster to 4.20</div></th><th>While on OCP 4.20<div class="th-sub">cluster upgrade complete</div></th></tr>
-  <tr><td><a href="grafana-operator/index.html">grafana-operator</a></td><td>v5<br><strong>5.24.0</strong></td><td><span class="badge ok">No action required</span></td><td><span class="cell-ok">&#10003; no action</span></td><td><span class="cell-ok">&#10003; no action</span></td><td><span class="cell-ok">&#10003; no action</span></td></tr><tr><td><a href="openshift-cert-manager-operator/index.html">openshift-cert-manager-operator</a></td><td>stable-v1<br><strong>1.19.2</strong></td><td><span class="badge warn">Operator upgrade required</span></td><td>stable-v1.19<br><strong>1.19.2</strong><div class="cell-sub">channel switch only, before the hop</div></td><td><span class="cell-ok">&#10003; no action</span></td><td>stable-v1.20<br><strong>1.20.1</strong><div class="cell-sub">2 upgrades, on arrival</div></td></tr>
+  <tr><th>Operator</th><th>Installed</th><th>Verdict</th><th>From the 4.18 catalog<div class="th-sub">intermediate, only if needed</div></th><th>From the 4.19 catalog<div class="th-sub">intermediate, only if needed</div></th><th>From the 4.20 catalog<div class="th-sub">target catalog</div></th></tr>
+  <tr><td><a href="grafana-operator/index.html">grafana-operator</a></td><td>v5<br><strong>5.24.0</strong></td><td><span class="badge ok">No action required</span></td><td class="cell-none">&mdash;</td><td class="cell-none">&mdash;</td><td><span class="cell-ok">&#10003; no action</span></td></tr><tr><td><a href="openshift-cert-manager-operator/index.html">openshift-cert-manager-operator</a></td><td>stable-v1<br><strong>1.19.2</strong></td><td><span class="badge warn">Operator upgrade required</span></td><td class="cell-none">&mdash;</td><td class="cell-none">&mdash;</td><td>stable-v1.20<br><strong>1.20.1</strong><div class="cell-sub">2 upgrades</div></td></tr>
 </table>
-<h2 style="margin-top:30px">Catalog mirroring</h2>
-<div class="legend">Each operator is first checked against the target catalog
-alone, since that is usually the only catalog mirrored. <em>CRITICAL</em> means
-it cannot be upgraded from there, and the listed intermediate catalog must be
-mirrored and deployed too. The oc-mirror configuration is written to
+<h2 style="margin-top:30px">Catalogs to mirror</h2>
+<div class="legend">The oc-mirror configuration listing the packages, channels
+and versions needed from each is written to
 <code>output/imageset-config.yaml</code>.</div>
-<table class="info"><tr><td class="label">OCP 4.20</td><td><code>registry.redhat.io/redhat/community-operator-index:v4.20</code><br><code>registry.redhat.io/redhat/redhat-operator-index:v4.20</code></td></tr></table>
-<table class="ops">
-  <tr><th>Operator</th><th>Status</th><th>Catalogs needed</th><th>Upgrades</th></tr>
-  <tr><td>grafana-operator</td><td><span class="badge ok">OK</span></td><td>4.20</td><td>&mdash;</td></tr><tr><td>openshift-cert-manager-operator</td><td><span class="badge ok">OK</span></td><td>4.20</td><td>4.20: stable-v1 <strong>1.20.0</strong> (skipRange)<br>4.20: stable-v1.20 <strong>1.20.1</strong> (skipRange)</td></tr>
-</table></div></body></html>
+<table class="info"><tr><td class="label">OCP 4.20</td><td><code>registry.redhat.io/redhat/community-operator-index:v4.20</code><br><code>registry.redhat.io/redhat/redhat-operator-index:v4.20</code></td></tr></table></div></body></html>

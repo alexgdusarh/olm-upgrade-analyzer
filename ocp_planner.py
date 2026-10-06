@@ -1,39 +1,19 @@
 #!/usr/bin/env python3
 """
-OCP cluster upgrade planner for OLM operators.
+Catalog and version helpers for the OCP cluster upgrade planner.
 
-Plans operator upgrades around an OpenShift cluster upgrade, across one catalog
-per OCP release. Generic: no operator-specific logic anywhere.
+Loads one OLM catalog per OCP release, resolves an installed operator against
+them, and provides the upgrade edges - replaces, skips and skipRange - that the
+planner in mirror_plan.py searches. Generic: no operator-specific logic.
 
-Model
------
-An OCP upgrade is a sequence of single-release hops:
+An OCP upgrade path is:
 
     EUS      current -> current+1 -> current+2   (target = current+2)
     other    current -> current+1                (target = current+1)
-
-For a hop from OCP N to N+1 the operator must sit at a (channel, version) that
-is present in BOTH catalogs, because the cluster runs N when the hop starts and
-N+1 when it finishes. That constraint is pairwise, not global: an operator may
-be moved again while the cluster sits at an intermediate release.
-
-This matters. Version-pinned operators (odf-operator, lvms-operator, ...) carry
-only stable-<N-1> and stable-<N> in each catalog, so no single channel exists in
-all three catalogs of an EUS jump. A global intersection would call them blocked;
-the pairwise model produces the stepped plan that is actually used in the field.
-
-Each hop yields a phase, plus a final phase that takes the operator to latest on
-the target release once the cluster upgrade is done.
-
-Objective, in order:
-    1. fewest hops before the cluster can move (unblock the cluster fast)
-    2. among equal-hop options, the highest channel and version (fewer upgrades
-       overall across cluster and operators)
 """
 
 import json
 import re
-from collections import deque
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -181,6 +161,7 @@ def build_ocp_path(current: str, target: str, channel: str) -> List[str]:
 
     EUS jumps two releases, everything else jumps one. The channel decides the
     expected span; the target is authoritative and is validated against it.
+    EUS releases are the even minors, so an EUS path runs even to even.
     """
     cmaj, cmin = parse_ocp(current)
     tmaj, tmin = parse_ocp(target)
@@ -201,6 +182,10 @@ def build_ocp_path(current: str, target: str, channel: str) -> List[str]:
         raise ValueError(
             f"{kind} upgrade expects a {expected}-release jump, "
             f"but {current} -> {target} spans {span}")
+    if is_eus and cmin % 2:
+        raise ValueError(
+            f"EUS releases are the even minors, so {current} -> {target} is "
+            f"not an EUS upgrade")
 
     return [format_ocp(cmaj, m) for m in range(cmin, tmin + 1)]
 
@@ -385,70 +370,6 @@ def resolve_version(catalog: Dict, pkg: str, chan: str,
     return None, []
 
 
-def channel_max_version(catalog: Dict, pkg: str, chan: str) -> Optional[str]:
-    versions = catalog.get(pkg, {}).get(chan, {})
-    if not versions:
-        return None
-    return max(versions, key=version_sort_key)
-
-
-def _channel_suffix_version(chan: str):
-    """The trailing numeric version in a channel name, if it has one."""
-    m = re.search(r'(\d+(?:\.\d+)*)$', str(chan))
-    return safe_parse_version(m.group(1)) if m else None
-
-
-def resolve_channel(catalog: Dict, pkg: str,
-                    requested: str) -> Tuple[Optional[str], str]:
-    """
-    Map a requested channel onto one that exists in the catalog.
-
-    A subscription may name a channel that has since been retired, so the
-    request is a hint rather than a guarantee. Resolution order:
-
-        1. the requested channel, when it exists
-        2. the newest channel whose name contains 'stable' or 'latest'
-        3. the newest channel whose name ends in a version number
-        4. the channel holding the highest version overall
-
-    'Newest' compares the highest version each channel carries, so it does not
-    depend on any particular naming scheme.
-
-    Returns (channel, reason). The channel is None only when the package has no
-    channels at all.
-    """
-    channels = catalog.get(pkg, {})
-    if not channels:
-        return None, 'no channels'
-
-    if requested in channels:
-        return requested, 'exact'
-
-    def newest(names):
-        scored = [(c, channel_max_version(catalog, pkg, c)) for c in names]
-        scored = [(c, v) for c, v in scored if v]
-        if not scored:
-            return None
-        return max(scored, key=lambda cv: version_sort_key(cv[1]))[0]
-
-    named = [c for c in channels
-             if 'stable' in c.lower() or 'latest' in c.lower()]
-    pick = newest(named)
-    if pick:
-        return pick, 'stable/latest'
-
-    versioned = [c for c in channels if _channel_suffix_version(c) is not None]
-    pick = newest(versioned)
-    if pick:
-        return pick, 'versioned'
-
-    pick = newest(list(channels))
-    if pick:
-        return pick, 'highest'
-
-    return None, 'no versions'
-
-
 def release_channel(catalog: Dict, pkg: str, ocp: str,
                     prefer: Optional[str] = None) -> Optional[Tuple[str, str]]:
     """
@@ -493,28 +414,6 @@ def is_version_pinned(catalogs: Dict[str, Dict], pkg: str) -> bool:
                 hits += 1
                 break
     return hits >= max(2, len(catalogs) - 1)
-
-
-def find_monotonicity_gaps(catalogs: Dict[str, Dict], ocp_path: List[str],
-                           pkg: str) -> List[Dict]:
-    """
-    Detect tuples present at both ends of the path but absent in the middle.
-
-    Such a tuple would strand a cluster mid-upgrade. These cases are rare and
-    are reported for manual review rather than being planned around.
-    """
-    gaps = []
-    if len(ocp_path) < 3:
-        return gaps
-
-    first, last = ocp_path[0], ocp_path[-1]
-    both = tuples_in(catalogs[first], pkg) & tuples_in(catalogs[last], pkg)
-    for mid in ocp_path[1:-1]:
-        mid_tuples = tuples_in(catalogs[mid], pkg)
-        for chan, ver in sorted(both - mid_tuples):
-            gaps.append({'channel': chan, 'version': ver,
-                         'present_in': [first, last], 'absent_in': mid})
-    return gaps
 
 
 # ---------------------------------------------------------------------------
@@ -567,77 +466,6 @@ def _rank(node: Tuple[str, str]):
     return (version_sort_key(ver), chan)
 
 
-def shortest_path_to(catalog: Dict, pkg: str, start: Tuple[str, str],
-                     allowed: set, prefer_highest: bool = True
-                     ) -> Optional[List[Dict]]:
-    """
-    Fewest-hop path from start to any (channel, version) in `allowed`.
-
-    Channel switches at the same version cost zero hops, so this is a 0-1 BFS.
-    Among equal-cost destinations the highest is chosen, per the objective of
-    minimising total upgrades over the whole exercise.
-    """
-    if not allowed:
-        return None
-    if start in allowed:
-        return []
-
-    dist = {start: 0}
-    prev: Dict[Tuple[str, str], Tuple[Tuple[str, str], str]] = {}
-    dq = deque([start])
-    best: Optional[Tuple[str, str]] = None
-    best_cost = None
-
-    while dq:
-        node = dq.popleft()
-        cost = dist[node]
-
-        if best_cost is not None and cost > best_cost:
-            break
-
-        if node in allowed:
-            if best is None or cost < best_cost or (
-                    cost == best_cost and prefer_highest
-                    and _rank(node) > _rank(best)):
-                best, best_cost = node, cost
-            continue
-
-        chan, ver = node
-
-        # zero-cost: same version, different channel
-        for alt_chan in _same_version_channels(catalog, pkg, ver):
-            alt = (alt_chan, ver)
-            if alt not in dist or dist[alt] > cost:
-                dist[alt] = cost
-                prev[alt] = (node, 'channel-switch')
-                dq.appendleft(alt)
-
-        # cost 1: an actual upgrade
-        for to_chan, to_ver, reason in _reachable_from(catalog, pkg, chan, ver):
-            nxt = (to_chan, to_ver)
-            if nxt not in dist or dist[nxt] > cost + 1:
-                dist[nxt] = cost + 1
-                prev[nxt] = (node, reason)
-                dq.append(nxt)
-
-    if best is None:
-        return None
-
-    # reconstruct
-    steps = []
-    node = best
-    while node != start:
-        parent, reason = prev[node]
-        steps.append({
-            'from_channel': parent[0], 'from_version': parent[1],
-            'to_channel': node[0], 'to_version': node[1],
-            'via': reason,
-        })
-        node = parent
-    steps.reverse()
-    return steps
-
-
 def highest_tuple(catalog: Dict, pkg: str) -> Optional[Tuple[str, str]]:
     tuples = tuples_in(catalog, pkg)
     if not tuples:
@@ -646,347 +474,69 @@ def highest_tuple(catalog: Dict, pkg: str) -> Optional[Tuple[str, str]]:
 
 
 # ---------------------------------------------------------------------------
-# Planning
+# Installed operator
 # ---------------------------------------------------------------------------
 
-def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
-                  name: str, channel: str, version: str) -> Dict:
-    """Build the full phase plan for one operator."""
-    version = normalize_version(version)
-    result = {
-        'operator': name,
-        'input': {'channel': channel, 'version': version},
-        'ocp_path': ocp_path,
-        'version_pinned': False,
-        'phases': [],
-        'notes': [],
-        'verdict': 'no_action_required',
-        'blocking': False,
-    }
-
-    current_catalog = catalogs[ocp_path[0]]
-
-    resolved, candidates = resolve_package(current_catalog, name)
-    if resolved is None:
-        result['verdict'] = 'manual_review'
-        if candidates:
-            result['notes'].append(
-                f"Operator '{name}' matches more than one package in the "
-                f"{ocp_path[0]} catalog ({', '.join(candidates)}). Pass the "
-                f"exact package name. Check manually.")
-        else:
-            result['notes'].append(
-                f"Operator '{name}' is not present in the {ocp_path[0]} "
-                f"catalog. It may be a third-party operator, which this tool "
-                f"does not diagnose. Check manually.")
-        return result
-
-    if resolved != name:
-        result['resolved_package'] = resolved
-        result['notes'].append(
-            f"Resolved '{name}' to catalog package '{resolved}'.")
-        name = resolved
-        result['operator'] = resolved
-
-    requested_channel = channel
-    if channel not in current_catalog[name]:
-        picked, reason = resolve_channel(current_catalog, name, channel)
-        if picked is None:
-            available = ', '.join(sorted(current_catalog[name].keys()))
-            result['verdict'] = 'manual_review'
-            result['notes'].append(
-                f"Channel '{channel}' does not exist for '{name}' in the "
-                f"{ocp_path[0]} catalog and no usable alternative was found. "
-                f"Available: {available}. Check manually.")
-            return result
-
-        explain = {
-            'stable/latest': "the newest channel named stable or latest",
-            'versioned': "the newest version-numbered channel",
-            'highest': "the channel carrying the highest version",
-        }.get(reason, reason)
-        result['resolved_channel'] = picked
-        result['notes'].append(
-            f"Channel '{channel}' does not exist for '{name}' in the "
-            f"{ocp_path[0]} catalog. Fell back to '{picked}' ({explain}). "
-            f"Confirm this matches the subscription.")
-        channel = picked
-        result['input']['resolved_channel'] = picked
-
-    matched, matches = resolve_version(current_catalog, name, channel, version)
-    if matched is None:
-        # The version may belong to the channel that was originally requested.
-        alt = None
-        for chan in current_catalog[name]:
-            cand, _ = resolve_version(current_catalog, name, chan, version)
-            if cand is not None:
-                alt = (chan, cand)
-                break
-        if alt:
-            channel, matched = alt[0], alt[1]
-            result['resolved_channel'] = channel
-            result['input']['resolved_channel'] = channel
-            # The earlier fallback guess is superseded by where the installed
-            # version actually lives, so replace it rather than report both.
-            result['notes'] = [n for n in result['notes']
-                               if not n.startswith(f"Channel '{requested_channel}'")]
-            result['notes'].append(
-                f"Channel '{requested_channel}' does not exist for '{name}' in "
-                f"the {ocp_path[0]} catalog. Version {version} was located in "
-                f"'{channel}', which is used instead.")
-        else:
-            result['verdict'] = 'manual_review'
-            result['notes'].append(
-                f"Version {version} is not present in channel '{channel}' of "
-                f"the {ocp_path[0]} catalog. Check manually.")
-            return result
-
-    if matched != normalize_version(version):
-        result['resolved_version'] = matched
-        extra = (f" ({len(matches)} builds share this version; the newest was "
-                 f"used)" if len(matches) > 1 else "")
-        result['notes'].append(
-            f"Resolved installed version {version} to catalog entry "
-            f"{matched}{extra}.")
-        version = matched
-
-    result['version_pinned'] = is_version_pinned(catalogs, name)
-
-    gaps = find_monotonicity_gaps(catalogs, ocp_path, name)
-    for gap in gaps:
-        result['notes'].append(
-            f"Non-monotonic catalog: {gap['channel']} {gap['version']} is "
-            f"present in {' and '.join(gap['present_in'])} but absent in "
-            f"{gap['absent_in']}. Excluded from planning - verify manually.")
-    excluded = {(g['channel'], g['version']) for g in gaps}
-
-    current = (channel, version)
-
-    if result['version_pinned']:
-        return _plan_pinned(catalogs, ocp_path, name, current, excluded, result)
-
-    return _plan_floating(catalogs, ocp_path, name, current, excluded, result)
-
-
-def _plan_pinned(catalogs, ocp_path, name, current, excluded, result) -> Dict:
+def resolve_installed(catalogs: Dict[str, Dict], ocp_path: List[str],
+                      name: str, channel: str, version: str
+                      ) -> Tuple[Optional[Tuple[str, str, str]], List[str]]:
     """
-    Plan an operator whose version stream is pinned to the OCP release.
+    Map an installed operator onto the catalogs: (package, channel, version).
 
-    Such an operator follows the cluster rather than leading it. Each catalog
-    carries the previous release's channel as well as its own, so an operator
-    sitting at stable-<N> stays valid when the cluster moves to N+1. The upgrade
-    therefore happens after each hop: move the cluster, then switch to that
-    release's channel and take its latest version. One operator upgrade per OCP
-    upgrade.
+    The current release's catalog is searched first, since that is where the
+    installed bundle comes from, then the target, then any release between.
+    A version no catalog lists is kept as given: upgrade edges are evaluated
+    by version, so the target catalog can still cover it.
 
-    A pre-upgrade phase is emitted only when the installed version is too old to
-    survive the first hop at all.
+    Returns (None, notes) when the package cannot be identified.
     """
-    first_hop_catalog = catalogs[ocp_path[1]]
+    order = [ocp_path[0], ocp_path[-1]] + ocp_path[1:-1]
+    notes: List[str] = []
 
-    if current not in tuples_in(first_hop_catalog, name):
-        on_ocp, next_ocp = ocp_path[0], ocp_path[1]
-        # Same rule as every other release: switch to this release's channel and
-        # take its latest version. Anything older cannot survive the hop.
-        target = release_channel(catalogs[on_ocp], name, on_ocp,
-                                 prefer=current[0])
-        phase = {
-            'phase': 1, 'kind': 'pre-upgrade', 'on_ocp': on_ocp,
-            'satisfies': [on_ocp, next_ocp],
-            'from': {'channel': current[0], 'version': current[1]},
-        }
-        steps = (shortest_path_to(catalogs[on_ocp], name, current, {target})
-                 if target and target != current else None)
+    pkg = None
+    for ocp in order:
+        resolved, candidates = resolve_package(catalogs[ocp], name)
+        if resolved:
+            pkg = resolved
+            break
+        if len(candidates) > 1:
+            notes.append(
+                f"Operator '{name}' matches more than one package in the {ocp} "
+                f"catalog ({', '.join(candidates)}). Pass the exact package "
+                f"name. Check manually.")
+            return None, notes
+    if pkg is None:
+        notes.append(
+            f"Operator '{name}' is not in any catalog on the path "
+            f"({', '.join(ocp_path)}) of this catalog image. It may come from "
+            f"another catalog image. Check manually.")
+        return None, notes
+    if pkg != name:
+        notes.append(f"Resolved '{name}' to catalog package '{pkg}'.")
 
-        if target == current:
-            # Already at this release's head. The operator moves once the
-            # cluster reaches the next release; nothing to do beforehand.
-            pass
-        elif target is None or steps is None:
-            phase.update({'to': phase['from'], 'hops': 0, 'steps': [],
-                          'status': 'blocked'})
-            result['phases'].append(phase)
-            result['verdict'] = 'blocked'
-            result['blocking'] = True
-            where = (f"{target[1]} in channel {target[0]}" if target
-                     else f"any {on_ocp} channel")
-            result['notes'].append(
-                f"'{name}' at {current[1]} (channel {current[0]}) is too old to "
-                f"survive the move from {on_ocp} to {next_ocp}, and cannot be "
-                f"upgraded to {where} using the {on_ocp} catalog.")
-            return result
-        else:
-            current = target
-            phase.update({'to': {'channel': current[0], 'version': current[1]},
-                          'hops': sum(1 for x in steps
-                                      if x['via'] != 'channel-switch'),
-                          'steps': steps, 'status': 'upgrade_required'})
-            result['phases'].append(phase)
-            result['verdict'] = 'operator_upgrade_required'
-            result['notes'].append(
-                f"The installed version predates the release window, so an "
-                f"upgrade on {on_ocp} is required before the cluster can move.")
+    ver = normalize_version(version)
+    for ocp in order:
+        channels = catalogs[ocp].get(pkg, {})
+        # the subscribed channel first, then wherever the version lives
+        for chan in [channel] + sorted(c for c in channels if c != channel):
+            if chan not in channels:
+                continue
+            matched, matches = resolve_version(catalogs[ocp], pkg, chan, ver)
+            if matched is None:
+                continue
+            if chan != channel:
+                notes.append(
+                    f"Version {ver} is not in channel '{channel}' of the {ocp} "
+                    f"catalog; it was located in '{chan}', which is used "
+                    f"instead. Confirm this matches the subscription.")
+            if matched != ver:
+                extra = (f" ({len(matches)} builds share this version; the "
+                         f"newest was used)" if len(matches) > 1 else "")
+                notes.append(f"Resolved installed version {ver} to catalog "
+                             f"entry {matched}{extra}.")
+            return (pkg, chan, matched), notes
 
-    # One operator upgrade per OCP release the cluster lands on.
-    for ocp in ocp_path[1:]:
-        catalog = catalogs[ocp]
-        target = release_channel(catalog, name, ocp, prefer=current[0])
-        phase = {
-            'phase': len(result['phases']) + 1,
-            'kind': 'per-release', 'on_ocp': ocp, 'satisfies': [ocp],
-            'from': {'channel': current[0], 'version': current[1]},
-        }
-
-        if target is None or target == current:
-            phase.update({'to': phase['from'], 'hops': 0, 'steps': [],
-                          'status': 'no_action'})
-            result['phases'].append(phase)
-            continue
-
-        steps = shortest_path_to(catalog, name, current, {target})
-        if steps is None:
-            phase.update({'to': phase['from'], 'hops': 0, 'steps': [],
-                          'status': 'unreachable'})
-            result['phases'].append(phase)
-            result['verdict'] = 'manual_review'
-            result['notes'].append(
-                f"On OCP {ocp}, '{name}' cannot reach {target[1]} in channel "
-                f"{target[0]} from {current[1]} (channel {current[0]}). "
-                f"Verify manually.")
-            continue
-
-        current = target
-        phase.update({'to': {'channel': current[0], 'version': current[1]},
-                      'hops': sum(1 for s in steps if s['via'] != 'channel-switch'),
-                      'steps': steps, 'status': 'upgrade_required'})
-        result['phases'].append(phase)
-        result['verdict'] = 'operator_upgrade_required'
-
-        # The version installed here may have been retired by the next release.
-        idx = ocp_path.index(ocp)
-        if idx + 1 < len(ocp_path):
-            nxt = ocp_path[idx + 1]
-            if current not in tuples_in(catalogs[nxt], name):
-                result['notes'].append(
-                    f"{current[1]} (channel {current[0]}) is the head of that "
-                    f"channel on {ocp} but is absent from the {nxt} catalog. "
-                    f"That is expected for a release-pinned operator, which "
-                    f"moves to the {nxt} channel once the cluster arrives.")
-
-    return result
-
-
-def _plan_floating(catalogs, ocp_path, name, current, excluded, result) -> Dict:
-    """
-    Plan an operator whose versions are independent of the OCP release.
-
-    Here the operator leads: for each hop it must already sit at a
-    (channel, version) present in both the current and next catalogs, so it is
-    upgraded before the cluster moves. A final phase takes it to latest once the
-    cluster has arrived.
-    """
-    for i in range(len(ocp_path) - 1):
-        on_ocp, next_ocp = ocp_path[i], ocp_path[i + 1]
-        allowed = (tuples_in(catalogs[on_ocp], name)
-                   & tuples_in(catalogs[next_ocp], name)) - excluded
-
-        phase = {
-            'phase': len(result['phases']) + 1,
-            'kind': 'pre-upgrade',
-            'on_ocp': on_ocp,
-            'satisfies': [on_ocp, next_ocp],
-            'from': {'channel': current[0], 'version': current[1]},
-        }
-
-        if not allowed:
-            phase.update({'to': phase['from'], 'hops': 0, 'steps': [],
-                          'status': 'blocked'})
-            result['phases'].append(phase)
-            result['verdict'] = 'blocked'
-            result['blocking'] = True
-            result['notes'].append(
-                f"No channel/version of '{name}' exists in both the {on_ocp} "
-                f"and {next_ocp} catalogs. The cluster cannot move from "
-                f"{on_ocp} to {next_ocp} with this operator installed.")
-            return result
-
-        steps = shortest_path_to(catalogs[on_ocp], name, current, allowed)
-
-        if steps is None:
-            # A valid target exists but nothing reachable lands on it. This is
-            # usually a catalog anomaly - the reachable head was retired in the
-            # next release - so it is flagged for manual review rather than
-            # being called a hard block.
-            reachable = shortest_path_to(
-                catalogs[on_ocp], name, current,
-                tuples_in(catalogs[on_ocp], name) - {current})
-            near = ""
-            if reachable:
-                last = reachable[-1]
-                near = (f" The furthest reachable point is "
-                        f"{last['to_version']} in channel {last['to_channel']}, "
-                        f"which is absent from the {next_ocp} catalog.")
-
-            phase.update({'to': phase['from'], 'hops': 0, 'steps': [],
-                          'status': 'unreachable'})
-            result['phases'].append(phase)
-            result['verdict'] = 'manual_review'
-            result['notes'].append(
-                f"On OCP {on_ocp}, '{name}' at {current[1]} (channel "
-                f"{current[0]}) cannot reach any channel/version valid in both "
-                f"{on_ocp} and {next_ocp}.{near} Valid targets do exist "
-                f"({', '.join(f'{c}/{v}' for c, v in sorted(allowed)[:4])}"
-                f"{', ...' if len(allowed) > 4 else ''}) but no upgrade edge "
-                f"leads to them. Verify manually.")
-            return result
-
-        if steps:
-            current = (steps[-1]['to_channel'], steps[-1]['to_version'])
-            phase['status'] = 'upgrade_required'
-            result['verdict'] = 'operator_upgrade_required'
-        else:
-            phase['status'] = 'no_action'
-
-        phase.update({
-            'to': {'channel': current[0], 'version': current[1]},
-            'hops': sum(1 for s in steps if s['via'] != 'channel-switch'),
-            'steps': steps,
-        })
-        result['phases'].append(phase)
-
-    # Final phase: on the target release, go to latest
-    target_ocp = ocp_path[-1]
-    target_catalog = catalogs[target_ocp]
-    highest = highest_tuple(target_catalog, name)
-
-    final = {
-        'phase': len(result['phases']) + 1,
-        'kind': 'post-upgrade',
-        'on_ocp': target_ocp,
-        'satisfies': [target_ocp],
-        'from': {'channel': current[0], 'version': current[1]},
-    }
-
-    if highest and highest != current:
-        steps = shortest_path_to(target_catalog, name, current, {highest})
-        if steps:
-            current = highest
-            final['status'] = 'upgrade_available'
-        else:
-            steps = []
-            final['status'] = 'no_action'
-            result['notes'].append(
-                f"Latest {highest[1]} (channel {highest[0]}) is not reachable "
-                f"from {final['from']['version']} on {target_ocp}.")
-    else:
-        steps = []
-        final['status'] = 'no_action'
-
-    final.update({
-        'to': {'channel': current[0], 'version': current[1]},
-        'hops': sum(1 for s in steps if s['via'] != 'channel-switch'),
-        'steps': steps,
-    })
-    result['phases'].append(final)
-
-    return result
+    notes.append(
+        f"Version {ver} of '{pkg}' is not listed in any catalog on the path. "
+        f"It is checked as installed, by version.")
+    return (pkg, channel, ver), notes

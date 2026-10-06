@@ -4,7 +4,7 @@ Two tools that read OLM catalogs and work out how operators need to move.
 
 | Tool | Question it answers |
 |------|---------------------|
-| `ocp_upgrade_planner.py` | I am upgrading a cluster. What must happen to my operators, and when? |
+| `ocp_upgrade_planner.py` | I am upgrading a cluster. Can the target catalog upgrade my operators, and which catalogs must I mirror? |
 | `operator_interactive.py` | How do I get one operator from version A to the latest, in one catalog? |
 
 Both are generic. No operator names, versions or channel naming schemes are
@@ -20,11 +20,12 @@ pip install -r requirements.txt
 
 # 1. Cluster upgrade planner
 
-Plans every operator around an OCP cluster upgrade, using one catalog per OCP
-release. Writes one HTML report per operator plus a cluster summary, and prints
-the plan as JSON. Given the health check's catalog mirror check, it also pulls
-the catalogs itself, works out which catalogs a disconnected cluster has to
-mirror, and writes the oc-mirror configuration for them.
+Pulls the target release's catalog, and earlier ones, from the cluster's
+catalog images, checks every installed operator against the target catalog
+first, and works backwards to an intermediate catalog only when the target
+does not cover it. Writes one HTML report per operator, a cluster summary and
+the oc-mirror configuration for the catalogs a disconnected cluster has to
+mirror, and prints the plan as JSON.
 
 ```bash
 # catalogs pulled from the cluster's catalog images at run time
@@ -94,25 +95,59 @@ Registry credentials come from `--authfile`, or else from the cluster pull
 secret (`oc extract secret/pull-secret -n openshift-config`), which needs a
 logged-in `oc`.
 
-### Catalog mirroring
+### How operators are planned
 
-Customers usually mirror only their own operators, and only from the target
-release's catalog. Each operator is therefore checked against the **target
-catalog first**, using the same replaces, skips and skipRange edges as the
-planner. If the installed (channel, version) can be upgraded from there, the
-target catalog is enough.
+Customers mirror only their own operators, and only from the target release's
+catalog. And an operator bundle is only expected to be compatible one minor
+either side of its own, while an EUS upgrade jumps two, even to even. Every
+operator is therefore planned **backwards from the target catalog**, never
+forwards hop by hop:
 
-If it cannot, the operator is reported **CRITICAL** and the intermediate
-catalog that bridges the gap is found: one extra catalog first, closest to the
-target first (4.19 on a 4.18 to 4.20 EUS path, then 4.18), then two. That
-catalog must be mirrored and deployed as well, and the operator upgraded from
-it before the target catalog takes over.
+1. **Target catalog first.** It covers the installed version when it still
+   ships it, or has an upgrade edge from it — `skipRange`, `replaces` or
+   `skips`. The shortest path to the latest bundle is taken from that catalog,
+   fewest upgrades first; switching channel at the same version is free.
+2. **Intermediate catalog only when the target does not cover it.** Earlier
+   catalogs are added working backwards: one extra catalog first, closest to
+   the target first (4.19 on a 4.18 to 4.20 EUS path, then 4.18), then two.
+   That catalog must be mirrored and deployed as well, and the operator
+   upgraded from it before the target catalog takes over. Reported CRITICAL.
+
+| Verdict | When |
+|---------|------|
+| `no_action_required` | The target catalog still ships the installed bundle, and `max_ocp_version` reaches the target. A newer version is noted as optional |
+| `operator_upgrade_required` | Covered by the target catalog, but the installed channel/version is gone from it, or `max_ocp_version` is below the target. The upgrade comes from the target catalog |
+| `intermediate_catalog_required` | **CRITICAL.** The target catalog does not cover the installed version; the intermediate catalog is named |
+| `blocked` | The package is gone from the target catalog |
+| `manual_review` | The operator is not in its catalog image, or no combination of catalogs covers it |
+
+```
+redhat-oadp-operator, installed stable-1.4 / 1.4.3, OCP 4.18 -> 4.20 EUS
+
+  4.20 catalog: stable 1.5.0 .. 1.5.8, skipRange >=1.4.0 <1.5.x
+  1.4.3 is gone from it, but covered by skipRange
+  -> operator_upgrade_required: stable-1.4 1.4.3 -> stable 1.5.8, from 4.20
+
+advanced-cluster-management, installed release-2.12 / 2.12.8
+
+  4.20 catalog has no edge from 2.12.8; the 4.19 catalog does
+  -> intermediate_catalog_required:
+     from 4.19: release-2.13 2.13.0
+     from 4.20: release-2.15 2.15.0 -> release-2.17 2.17.1
+```
+
+Release-pinned operators — `odf-operator` 4.18.x on OCP 4.18 and the rest of
+the ODF family, detected from the version data — aim for the target release's
+channel head rather than the highest version overall.
+
+### oc-mirror configuration
 
 `imageset-config.yaml` (oc-mirror v2) lists, per catalog version, every
 package, channel and `minVersion`/`maxVersion` range the operators pass
-through. Dependencies (`main: false`) are added at the head of their channel.
-Where the package's default channel is not one of the mirrored channels,
-`defaultChannel` is set, as oc-mirror requires.
+through. An operator needing no action keeps just its installed bundle, so the
+package still exists in the mirrored catalog. Dependencies (`main: false`) are
+added at the head of their channel. Where the package's default channel is not
+one of the mirrored channels, `defaultChannel` is set, as oc-mirror requires.
 
 ### Matching against the catalogs
 
@@ -122,20 +157,17 @@ optional on any version. Package names are resolved past vendor prefixes and
 role suffixes (`openshift-mtv` finds `mtv-operator`). Build and vendor suffixes
 such as `-rhodf` or `-202608142236` are kept and compared.
 
-A channel that no longer exists is not an error. Resolution order:
-
-1. the requested channel, when it exists
-2. the channel actually holding the installed version
-3. the newest channel named `stable` or `latest`
-4. the newest channel ending in a version number
-5. the channel carrying the highest version
-
-Every substitution is recorded in that operator's `notes` so it can be checked
-against the real subscription.
+The installed version is looked up in the current release's catalog, then the
+target, then any release between: in the subscribed channel first, then in
+whichever channel holds it. A substitution is recorded in that operator's
+`notes` so it can be checked against the real subscription. A version that no
+catalog lists is still checked, by version, since upgrade edges do not need it
+to be listed.
 
 `cluster.channel` decides the path length and nothing else:
 
-- `eus` — jumps two releases: `4.18 -> 4.19 -> 4.20`
+- `eus` — jumps two releases, from an even minor to the next even minor:
+  `4.18 -> 4.19 -> 4.20`. An odd starting release is rejected.
 - anything else — jumps one: `4.18 -> 4.19`
 
 A mismatch is rejected rather than guessed:
@@ -174,66 +206,49 @@ Only releases on the path are read. A 4.18 to 4.20 EUS run opens 4.18, 4.19 and
 
 ## Output
 
-`html/index.html` is the cluster summary; `html/<operator>/index.html` is the
-per-operator report, one row group per phase — info table, graph, steps. The
-plan JSON goes to stdout.
+`html/index.html` is the cluster summary, with one column per catalog and the
+catalogs to mirror; `html/<operator>/index.html` is the per-operator report,
+one row group per catalog the operator is upgraded from — info table, graph,
+steps. `imageset-config.yaml` is the oc-mirror configuration. The plan JSON
+goes to stdout.
 
 Abbreviated — each object carries more keys than shown:
 
 ```json
 {
-  "cluster": { "current": "4.18", "target": "4.20",
+  "cluster": { "current": "4.18.14", "target": "4.20",
                "channel": "eus", "ocp_path": ["4.18", "4.19", "4.20"] },
-  "verdict": "operator_upgrade_required",
+  "verdict": "intermediate_catalog_required",
   "blocking_operators": [],
+  "intermediate_catalog_operators": ["advanced-cluster-management"],
   "manual_review_operators": [],
-  "operators_requiring_upgrade": ["odf-operator"],
-  "operators": [
-    {
-      "operator": "odf-operator",
-      "verdict": "operator_upgrade_required",
-      "version_pinned": true,
-      "phases": [
-        { "phase": 1, "kind": "per-release", "on_ocp": "4.19",
-          "status": "upgrade_required", "hops": 1,
-          "from": { "channel": "stable-4.18", "version": "4.18.3"  },
-          "to":   { "channel": "stable-4.19", "version": "4.19.22" },
-          "steps": [ { "to_channel": "stable-4.19",
-                       "to_version": "4.19.22", "via": "skipRange" } ] }
-      ],
-      "notes": [],
-      "html": "html/odf-operator/index.html"
-    }
-  ]
-}
-```
-
-With a catalog mirror check input the plan also carries `mirror`, the summary
-page gains a *Catalog mirroring* table, and `imageset-config.yaml` is written:
-
-```json
-"mirror": {
-  "verdict": "critical",
-  "critical_operators": ["example-operator"],
+  "operators_requiring_upgrade": ["redhat-oadp-operator"],
   "catalogs_to_mirror": {
     "4.19": ["registry.redhat.io/redhat/redhat-operator-index:v4.19"],
     "4.20": ["registry.redhat.io/redhat/redhat-operator-index:v4.20"]
   },
+  "imageset_config": "imageset-config.yaml",
   "operators": [
-    { "operator": "example-operator", "status": "critical",
+    {
+      "operator": "advanced-cluster-management",
+      "verdict": "intermediate_catalog_required",
       "catalogs": ["4.19", "4.20"],
-      "steps": [ { "catalog": "4.19", "to_channel": "stable",
-                   "to_version": "2.1.0", "via": "skipRange" },
-                 { "catalog": "4.20", "to_channel": "stable",
-                   "to_version": "3.0.4", "via": "replaces" } ] }
-  ],
-  "imageset_config": "./imageset-config.yaml"
+      "goal": { "channel": "release-2.17", "version": "2.17.1" },
+      "phases": [
+        { "phase": 1, "kind": "intermediate", "on_ocp": "4.19",
+          "status": "upgrade_required", "hops": 1,
+          "from": { "channel": "release-2.12", "version": "2.12.8" },
+          "to":   { "channel": "release-2.13", "version": "2.13.0" },
+          "steps": [ { "catalog": "4.19", "to_channel": "release-2.13",
+                       "to_version": "2.13.0", "via": "skipRange" } ] },
+        { "phase": 2, "kind": "target", "on_ocp": "4.20", "...": "..." }
+      ],
+      "notes": ["CRITICAL: the 4.20 catalog does not cover ..."],
+      "html": "html/advanced-cluster-management/index.html"
+    }
+  ]
 }
 ```
-
-`status` is `ok`, `critical` (an intermediate catalog is needed, or the package
-is gone from the target catalog) or `unresolved` (no combination of catalogs
-works, or the operator was not found).
 
 ### Exit codes
 
@@ -242,73 +257,8 @@ works, or the operator was not found).
 | 0 | No action required, or operator upgrades are required and planned |
 | 1 | Usage or input error |
 | 2 | Manual review required |
-| 3 | An operator blocks the cluster upgrade |
+| 3 | An operator is gone from the target catalog |
 | 4 | An operator needs an intermediate catalog mirrored as well as the target catalog |
-
-### Verdicts
-
-`no_action_required`, `operator_upgrade_required`, `manual_review`, `blocked`.
-
-## How operators are planned
-
-Two models, chosen automatically per operator.
-
-### Release-pinned operators follow the cluster
-
-An operator whose version stream tracks the OCP release — `odf-operator` 4.18.x
-on OCP 4.18, `lvms-operator`, the ODF family. Detected from the version data,
-not from channel names.
-
-Every catalog carries the previous release's channel alongside its own, so an
-operator at `stable-<N>` is still valid once the cluster reaches N+1. Nothing
-has to happen before the hop. The upgrade happens **after** the cluster
-arrives: switch to that release's channel, take its latest version. One
-operator upgrade per OCP upgrade.
-
-```
-odf-operator, installed stable-4.18 / 4.18.3
-
-  cluster 4.18 -> 4.19
-  on 4.19:  switch to stable-4.19, install 4.19.22
-  cluster 4.19 -> 4.20
-  on 4.20:  switch to stable-4.20, install 4.20.17
-```
-
-A pre-upgrade phase appears only when the installed version predates the
-release window and could not survive the first hop — then it is aligned to the
-current release's channel head under the same rule.
-
-### Floating operators lead the cluster
-
-Everything else — `loki-operator`, `compliance-operator`, `openshift-gitops-operator`.
-
-For each hop the operator must already sit at a (channel, version) present in
-**both** the current and next catalogs, so it is upgraded before the cluster
-moves. The constraint is pairwise per hop, not a single tuple valid across every
-catalog. A final phase takes it to latest once the cluster has arrived.
-
-```
-loki-operator, installed stable-6.1 / 6.1.0
-
-  on 4.18:  upgrade to stable-6.3 / 6.3.4   (stable-6.1 is gone by 4.19)
-  cluster 4.18 -> 4.19                       (nothing to do)
-  cluster 4.19 -> 4.20
-  on 4.20:  upgrade to stable-6.6 / 6.6.0
-```
-
-### Objective
-
-Fewest upgrades before the cluster can move, so the cluster is unblocked
-quickly. Among options costing the same number of upgrades, the highest channel
-and version, since that means fewer upgrades overall afterwards. Switching
-channel at the same version is free and does not count as an upgrade.
-
-### Catalog anomalies
-
-Occasionally a channel or version is present in two releases but missing from
-one in between, or is dropped from the middle of a channel. Those entries are
-excluded from planning and reported in the notes for manual checking rather
-than being planned around.
 
 ---
 

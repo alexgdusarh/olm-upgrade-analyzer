@@ -1,20 +1,31 @@
 #!/usr/bin/env python3
 """
-Catalog mirroring plan for disconnected clusters.
+Operator upgrade and catalog mirroring plan, worked backwards from the target.
 
-Customers mirror only their own operators, and usually only from the target
-release's catalog. That is enough when every installed operator can be upgraded
-straight from the target catalog. When it cannot - typically a release-pinned
-operator on an EUS jump, whose target-release bundles only skip from the
-previous release - the operator is reported CRITICAL and the intermediate
-catalog that bridges the gap is identified, so it can be mirrored and deployed
-as well.
+Customers mirror only their own operators, and only from the target release's
+catalog, so every operator is judged against that catalog first:
 
-The search reuses the planner's upgrade edges (replaces, skips, skipRange).
-Catalogs are tried smallest set first: the target alone, then one extra
-catalog (closest to the target first), then two, and so on. Within a set the
-operator is moved through the catalogs in release order with the fewest
-upgrades.
+    1. The target catalog covers the installed version when it still ships it,
+       or has an upgrade edge from it (skipRange, replaces or skips). The
+       shortest path to the latest bundle is taken from that catalog.
+    2. When it does not, earlier catalogs are added, working backwards from
+       the target: one extra catalog first, closest to the target first (4.19
+       on a 4.18 to 4.20 EUS path, then 4.18), then two. That intermediate
+       catalog must be mirrored and deployed as well, and the operator
+       upgraded from it before the target catalog takes over.
+
+Verdicts:
+
+    no_action_required             the target catalog still ships the installed
+                                   bundle, and its max_ocp_version reaches the
+                                   target
+    operator_upgrade_required      covered by the target catalog, but the
+                                   installed channel/version is gone from it, or
+                                   its max_ocp_version is below the target
+    intermediate_catalog_required  the target catalog does not cover it (CRITICAL)
+    blocked                        the package is gone from the target catalog
+    manual_review                  not identified, or no catalog combination
+                                   covers it
 
 From the result an oc-mirror ImageSetConfiguration is produced, listing per
 catalog version the packages, channels and version ranges to mirror.
@@ -30,18 +41,22 @@ from ocp_planner import (
     _same_version_channels,
     highest_tuple,
     is_version_pinned,
+    normalize_version,
     parse_ocp,
     release_channel,
+    resolve_installed,
     tuples_in,
     version_sort_key,
 )
 
-OK = 'ok'
-CRITICAL = 'critical'
-UNRESOLVED = 'unresolved'
+NO_ACTION = 'no_action_required'
+UPGRADE = 'operator_upgrade_required'
+INTERMEDIATE = 'intermediate_catalog_required'
+BLOCKED = 'blocked'
+REVIEW = 'manual_review'
 
 
-def mirror_goal(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
+def target_goal(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
                 start: Tuple[str, str]) -> Optional[Tuple[str, str]]:
     """Where the operator should end up in the target catalog."""
     target = ocp_path[-1]
@@ -50,7 +65,6 @@ def mirror_goal(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
         if goal:
             return goal
     return highest_tuple(catalogs[target], pkg)
-
 
 def _staged_path(stages: List[Tuple[str, Dict]], pkg: str,
                  start: Tuple[str, str], goal: Optional[Tuple[str, str]]
@@ -125,77 +139,159 @@ def _candidate_sets(ocp_path: List[str]):
             yield sorted(combo, key=parse_ocp)
 
 
-def check_operator(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
-                   start: Tuple[str, str],
-                   max_ocp_version: str = '') -> Dict:
-    """Decide which catalogs one operator needs mirrored, and what from each."""
+def _search(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
+            start: Tuple[str, str], goal: Tuple[str, str]):
+    """
+    Fewest catalogs first, then the fewest upgrades: (extra catalogs, steps).
+
+    Within a set of catalogs the latest bundle is preferred; failing that, the
+    highest one the operator can reach at all, since its own stream may never
+    lead to the overall latest. None when no set covers the operator.
+    """
+    target = ocp_path[-1]
+    for extra in _candidate_sets(ocp_path):
+        stages = [(o, catalogs[o]) for o in extra + [target]]
+        for wanted in (goal, None):
+            steps = _staged_path(stages, pkg, start, wanted)
+            if steps is not None:
+                return extra, steps
+    return None
+
+
+def _max_ocp_below(max_ocp_version: str, target: str) -> bool:
+    if not max_ocp_version:
+        return False
+    try:
+        return parse_ocp(max_ocp_version) < parse_ocp(target)
+    except ValueError:
+        return False
+
+
+def _phases(steps: List[Dict], catalogs_used: List[str],
+            start: Tuple[str, str]) -> List[Dict]:
+    """One phase per catalog the operator is upgraded from, in order."""
+    phases = []
+    current = start
+    for ocp in catalogs_used:
+        mine = [s for s in steps if s['catalog'] == ocp]
+        end = ((mine[-1]['to_channel'], mine[-1]['to_version'])
+               if mine else current)
+        phases.append({
+            'phase': len(phases) + 1,
+            'kind': 'target' if ocp == catalogs_used[-1] else 'intermediate',
+            'on_ocp': ocp,
+            'status': 'upgrade_required' if mine else 'no_action',
+            'from': {'channel': current[0], 'version': current[1]},
+            'to': {'channel': end[0], 'version': end[1]},
+            'hops': sum(1 for s in mine if s['via'] != 'channel-switch'),
+            'steps': mine,
+        })
+        current = end
+    return phases
+
+
+def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
+                  op: Dict) -> Dict:
+    """Plan one installed operator against the target catalog first."""
     target = ocp_path[-1]
     result = {
-        'operator': pkg,
-        'installed': {'channel': start[0], 'version': start[1]},
-        'status': OK,
-        'catalogs': [target],
+        'operator': op['name'],
+        'input': {'channel': op['channel'],
+                  'version': normalize_version(op['version'])},
+        'max_ocp_version': op.get('max_ocp_version') or '',
+        'verdict': REVIEW,
+        'blocking': False,
+        'version_pinned': False,
+        'catalogs': [],
+        'phases': [],
         'steps': [],
         'notes': [],
     }
 
-    if max_ocp_version:
-        try:
-            if parse_ocp(max_ocp_version) < parse_ocp(target):
-                result['notes'].append(
-                    f"The installed bundle declares olm.maxOpenShiftVersion "
-                    f"{max_ocp_version}, so the cluster cannot upgrade past "
-                    f"{max_ocp_version} until '{pkg}' is upgraded.")
-        except ValueError:
-            pass
-
-    if not tuples_in(catalogs[target], pkg):
-        result['status'] = CRITICAL
-        result['notes'].append(
-            f"CRITICAL: '{pkg}' is not in the {target} catalog. It has been "
-            f"removed or renamed, and must be replaced or uninstalled before "
-            f"the cluster reaches {target}.")
+    installed, notes = resolve_installed(
+        catalogs, ocp_path, op['name'], op['channel'], op['version'])
+    result['notes'] += notes
+    if installed is None:
         return result
 
-    goal = mirror_goal(catalogs, ocp_path, pkg, start)
+    pkg, chan, ver = installed
+    start = (chan, ver)
+    result['operator'] = pkg
+    if chan != op['channel']:
+        result['input']['resolved_channel'] = chan
+    if ver != result['input']['version']:
+        result['input']['resolved_version'] = ver
+    result['version_pinned'] = is_version_pinned(catalogs, pkg)
 
-    # The latest bundle first; failing that, the highest one the operator can
-    # reach at all, since its own stream may never lead to the overall latest.
-    for wanted in (goal, None):
-        for extra in _candidate_sets(ocp_path):
-            stages = [(o, catalogs[o]) for o in extra + [target]]
-            steps = _staged_path(stages, pkg, start, wanted)
-            if steps is None:
-                continue
-            end = ((steps[-1]['to_channel'], steps[-1]['to_version'])
-                   if steps else start)
-            result['goal'] = {'channel': end[0], 'version': end[1]}
-            result['steps'] = steps
-            result['catalogs'] = extra + [target]
-            if wanted is None:
-                result['notes'].append(
-                    f"The latest {goal[1]} (channel {goal[0]}) is not "
-                    f"reachable from {start[1]}; {end[1]} (channel {end[0]}) "
-                    f"is the highest that is.")
-            if extra:
-                result['status'] = CRITICAL
-                result['notes'].append(_critical_note(
-                    pkg, start, target, extra, ocp_path[0]))
-            return result
+    too_old = _max_ocp_below(result['max_ocp_version'], target)
+    if too_old:
+        result['notes'].append(
+            f"The installed bundle declares olm.maxOpenShiftVersion "
+            f"{result['max_ocp_version']}, below the {target} target. It must "
+            f"be upgraded from the {target} catalog.")
 
-    result['status'] = UNRESOLVED
-    result['notes'].append(
-        f"CRITICAL: no combination of the {', '.join(ocp_path)} catalogs "
-        f"offers any upgrade of '{pkg}' from {start[1]} (channel {start[0]}) "
-        f"into the {target} catalog. Check manually.")
+    if not tuples_in(catalogs[target], pkg):
+        result.update(verdict=BLOCKED, blocking=True)
+        result['notes'].append(
+            f"'{pkg}' is not in the {target} catalog. It has been removed or "
+            f"renamed, and must be replaced or uninstalled before the cluster "
+            f"reaches {target}.")
+        return result
+
+    goal = target_goal(catalogs, ocp_path, pkg, start)
+    found = _search(catalogs, ocp_path, pkg, start, goal)
+    if found is None:
+        result['notes'].append(
+            f"No combination of the {', '.join(ocp_path)} catalogs covers "
+            f"'{pkg}' {ver} (channel {chan}) for the {target} catalog. "
+            f"Check manually.")
+        return result
+
+    extra, steps = found
+    end = (steps[-1]['to_channel'], steps[-1]['to_version']) if steps else start
+    in_target = start in tuples_in(catalogs[target], pkg)
+
+    if extra:
+        verdict = INTERMEDIATE
+        result['notes'].append(_critical_note(
+            pkg, start, target, extra, ocp_path[0]))
+    elif in_target and not too_old:
+        # Still shipped by the target catalog: nothing has to move. The
+        # latest is reported, and only the installed bundle is mirrored.
+        verdict = NO_ACTION
+        if end[1] != ver:
+            result['notes'].append(
+                f"{end[1]} (channel {end[0]}) is available in the {target} "
+                f"catalog; upgrading is optional.")
+        steps, end = [], start
+    elif not steps:
+        verdict = REVIEW
+        result['notes'].append(
+            f"'{pkg}' must be upgraded, but the {target} catalog has nothing "
+            f"newer than {ver}. Check manually.")
+    else:
+        verdict = UPGRADE
+        if not in_target:
+            result['notes'].append(
+                f"{ver} (channel {chan}) is not in the {target} catalog, which "
+                f"upgrades it to {end[1]} (channel {end[0]}).")
+        if end != goal:
+            result['notes'].append(
+                f"The latest {goal[1]} (channel {goal[0]}) is not reachable "
+                f"from {ver}; {end[1]} (channel {end[0]}) is the highest that "
+                f"is.")
+
+    result.update(verdict=verdict, catalogs=extra + [target], steps=steps,
+                  goal={'channel': end[0], 'version': end[1]},
+                  phases=_phases(steps, extra + [target], start))
     return result
 
 
 def _critical_note(pkg, start, target, extra, current) -> str:
     names = ' and '.join(extra)
     plural = len(extra) > 1
-    note = (f"CRITICAL: '{pkg}' {start[1]} (channel {start[0]}) cannot be "
-            f"upgraded from the {target} catalog alone. The {names} "
+    note = (f"CRITICAL: the {target} catalog does not cover '{pkg}' "
+            f"{start[1]} (channel {start[0]}). The {names} "
             f"catalog{'s' if plural else ''} must also be mirrored and "
             f"deployed, and the operator upgraded from "
             f"{'them' if plural else 'it'} first.")
@@ -218,6 +314,8 @@ def mirror_sets(result: Dict) -> Dict[str, Dict[str, List[str]]]:
         out.setdefault(s['catalog'], {}).setdefault(
             s['to_channel'], []).append(s['to_version'])
     goal = result.get('goal')
+    if not result['catalogs']:
+        return out
     target = result['catalogs'][-1]
     if goal and target not in out:
         out[target] = {goal['channel']: [goal['version']]}
