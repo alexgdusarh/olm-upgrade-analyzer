@@ -375,6 +375,8 @@ Examples:
   %(prog)s -i outputs/catalog_mirror_check.json
   %(prog)s -i outputs/catalog_mirror_check.json --authfile ~/pull-secret.json
   %(prog)s -i outputs/catalog_mirror_check.json --catalog-dir /path/to/catalogs
+  %(prog)s -i outputs/catalog_mirror_check.json \\
+      --component-version portworx-enterprise=3.6.0
 """)
     ap.add_argument('-i', '--input', help='Input JSON file (default: stdin)')
     ap.add_argument('--catalog-dir',

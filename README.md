@@ -33,6 +33,11 @@ python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json
 
 # catalogs already on disk, data-v<major>.<minor>.json
 python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json --catalog-dir /path/to/catalogs
+
+# the installed Portworx Enterprise release is known: check it exactly
+# (otherwise it is narrowed down from the operator version)
+python ocp_upgrade_planner.py -i outputs/catalog_mirror_check.json \
+    --component-version portworx-enterprise=3.6.0
 ```
 
 ## Input: catalog mirror check
