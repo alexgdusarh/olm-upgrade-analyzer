@@ -51,10 +51,8 @@ from itertools import combinations
 from typing import Dict, List, Optional, Tuple
 
 from ocp_planner import (
-    _rank,
     _reachable_from,
     _same_version_channels,
-    highest_tuple,
     is_version_pinned,
     normalize_version,
     parse_ocp,
@@ -71,6 +69,17 @@ BLOCKED = 'blocked'
 REVIEW = 'manual_review'
 
 
+def _keep_channel(chan: str):
+    """
+    Rank (channel, version): highest version first and, among channels
+    carrying the same version, the subscribed one, so the operator is never
+    moved to another channel just because its name sorts higher.
+    """
+    def key(node: Tuple[str, str]):
+        return (version_sort_key(node[1]), node[0] == chan, node[0])
+    return key
+
+
 def target_goal(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
                 start: Tuple[str, str]) -> Optional[Tuple[str, str]]:
     """Where the operator should end up in the target catalog."""
@@ -79,7 +88,9 @@ def target_goal(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
         goal = release_channel(catalogs[target], pkg, target, prefer=start[0])
         if goal:
             return goal
-    return highest_tuple(catalogs[target], pkg)
+    tuples = tuples_in(catalogs[target], pkg)
+    return max(tuples, key=_keep_channel(start[0])) if tuples else None
+
 
 def _staged_path(stages: List[Tuple[str, Dict]], pkg: str,
                  start: Tuple[str, str], goal: Optional[Tuple[str, str]]
@@ -128,7 +139,8 @@ def _staged_path(stages: List[Tuple[str, Dict]], pkg: str,
         present = tuples_in(stages[last][1], pkg)
         ends = [n for n in dist if n[0] == last and n[1:] in present]
         if ends:
-            found = max(ends, key=lambda n: (_rank(n[1:]), -dist[n]))
+            rank = _keep_channel(start[0])
+            found = max(ends, key=lambda n: (rank(n[1:]), -dist[n]))
     if found is None:
         return None
 
@@ -230,7 +242,7 @@ def _bridge(catalogs: Dict[str, Dict], ocp_path: List[str], pkg: str,
 
     common = set.intersection(*(tuples_in(catalogs[o], pkg) for o in ocp_path))
     best, best_cost = None, None
-    for tup in sorted(common, key=_rank, reverse=True):
+    for tup in sorted(common, key=_keep_channel(start[0]), reverse=True):
         top = declared_max_ocp(bundle_max, ocp_path, pkg, tup[1])
         try:
             if top and parse_ocp(top) < parse_ocp(target):

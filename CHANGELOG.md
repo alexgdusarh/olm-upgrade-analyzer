@@ -179,6 +179,10 @@ catalogs a disconnected cluster must mirror.
   The result is in the plan JSON as `columns`. An empty input
   `max_ocp_version` falls back to the installed bundle's value in the pulled
   catalog.
+- When several channels carry the latest version, the subscribed channel is
+  kept instead of switching to the one whose name sorts higher
+  (cert-manager `stable-v1` 1.19.2 now goes to `stable-v1` 1.20.1, not
+  `stable-v1.20`).
 - Each bundle's `olm.maxOpenShiftVersion` is recorded when the catalogs are
   pulled (`packages-v<major>.<minor>.json`); catalogs pulled before are pulled
   again once.
