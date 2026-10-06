@@ -75,6 +75,7 @@ Operators are grouped by the catalog index image they were installed from.
 | `packages[].main` | no | `false` marks a dependency installed by another operator. It is not planned, but is kept in the oc-mirror configuration. Default `true` |
 | `packages[].max_ocp_version` | no | The installed bundle's `olm.maxOpenShiftVersion`. A value below the target is reported |
 | `packages[].required_by` | no | Operators that depend on this one; shown in the oc-mirror configuration |
+| `packages[].component_versions` | no | Versions of what the operator manages, for vendor support matrices, e.g. `{"portworx-enterprise": "3.6.0"}` |
 
 ### Pulling the catalogs
 
@@ -174,6 +175,56 @@ nfd, installed stable / 4.18.0-202602261953, OCP 4.18 -> 4.20 EUS
   -> intermediate_catalog_required: mirror the 4.19 catalog for it too
 ```
 
+### Vendor support matrices
+
+Some vendors certify their product only on specific OpenShift z-streams, which
+OLM metadata does not carry. `constraints/vendor-support.json` records those
+matrices, keyed by OLM package; it holds the Portworx Enterprise matrix
+(3.5.3 to 3.7.1) from the
+[Portworx support matrix](https://docs.portworx.com/portworx-enterprise/support-matrix/operator-openshift-upgrade-path).
+Another vendor is added the same way; nothing in the code is vendor-specific.
+
+```json
+"portworx-certified": {
+  "component": "portworx-enterprise",
+  "label": "Portworx Enterprise",
+  "source": "https://docs.portworx.com/...",
+  "releases": [
+    { "version": "3.6.2", "operator_min": "26.3.0",
+      "openshift": { "4.17": "4.17.55", "4.18": "4.18.54", "4.19": "4.19.45",
+                     "4.20": "4.20.36", "4.21": "4.21.31", "4.22": "4.22.13" } }
+  ]
+}
+```
+
+The installed release - `component_versions` on the package in the input, or
+`--component-version portworx-enterprise=3.6.0` - must be certified on every
+OpenShift release the cluster passes through:
+
+- current release: certified up to at least the cluster's current version
+- intermediate release: listed (its z-stream is not known in advance)
+- target release: certified up to at least the target version, so give
+  `cluster.target` with its z-stream (`4.20.34`)
+- the installed operator at least the release's minimum, including a
+  per-release one (`operator_min_per_openshift`, e.g. 25.6.0 for 4.21)
+
+Otherwise the operator is **blocked**, and the lowest release at or above the
+installed one that covers the whole path is recommended, with its operator
+minimum and the current catalog's version meeting it, preferring the
+subscribed channel. A missing release version is a warning.
+
+```
+portworx-certified, Portworx Enterprise 3.6.0, OCP 4.18.14 -> 4.20.34 EUS
+
+  4.18: certified 4.18.42  ok
+  4.19: certified 4.19.31  ok
+  4.20: certified 4.20.23  below 4.20.34
+  -> blocked: upgrade Portworx Enterprise to 3.6.2 with operator 26.3.0 or
+     later before the cluster upgrade (certified 4.18.54, 4.19.45, 4.20.36)
+```
+
+Each matrix column shows the vendor's verdict for that release.
+
 ### oc-mirror configuration
 
 `imageset-config.yaml` (oc-mirror v2) lists, per catalog version, every
@@ -221,6 +272,8 @@ A mismatch is rejected rather than guessed:
 | `-a`, `--authfile` | pull secret | Registry credentials for pulling catalogs |
 | `--filter-by-os` | `linux/amd64` | Platform of the catalog image to pull |
 | `--jobs` | `4` | Catalog pulls to run at once |
+| `--constraints` | `constraints/vendor-support.json` | Vendor support matrices |
+| `--component-version` | — | `NAME=VERSION`, e.g. `portworx-enterprise=3.6.0`; overrides the input. Repeatable |
 | `--insecure-registry` | off | Pull catalogs over HTTP or with an untrusted certificate |
 | `-d`, `--output-dir` | `output` | Holds one folder per cluster and the shared `catalogs/` |
 | `--imageset-out` | `<output-dir>/<cluster_name>/imageset-config.yaml` | oc-mirror ImageSetConfiguration path |
@@ -391,6 +444,8 @@ ocp_planner.py            planning engine
 ocp_report.py             HTML reports
 catalog_fetch.py          pulls catalogs from catalog index images
 mirror_plan.py            catalog mirroring check and oc-mirror configuration
+vendor_constraints.py     vendor support matrices
+constraints/vendor-support.json  Portworx Enterprise support matrix
 operator_interactive.py   single-catalog analyzer
 examples/catalog_mirror_check.json  input template
 catalogs/data-v4.22.json  example catalog, format of a pulled catalog

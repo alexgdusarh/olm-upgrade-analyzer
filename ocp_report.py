@@ -209,6 +209,10 @@ table.ops th { vertical-align:top; }
 .cell-none { color:#bbb; text-align:center; }
 .cell-meta { color:#555; font-size:12.5px; }
 .cell-opt { color:#3f51b5; }
+.cell-vendor { font-size:11.5px; margin-top:5px; padding-top:4px;
+               border-top:1px dashed #ddd; }
+.cell-vendor.ok { color:#4caf50; } .cell-vendor.bad { color:#e05252; }
+.cell-vendor.warn { color:#8a6100; }
 .cell-warn { color:#8a6100; background:#fff8e1; font-size:12.5px; }
 .cell-rule { border:none; border-top:1px dashed #ddd; margin:8px 0; }
 .legend { font-size:13px; color:#666; background:#f7f7fa; border-left:3px solid #ccd;
@@ -220,6 +224,23 @@ code { background:#eef; padding:1px 5px; border-radius:3px; font-size:13px; }
 
 def _cluster_label(cluster: Dict) -> str:
     return f"{cluster['name']} " if cluster.get('name') else ""
+
+
+def _vendor_row(vendor: Optional[Dict]) -> str:
+    """The vendor support matrix row of an operator report."""
+    if not vendor:
+        return ''
+    status = {'ok': ('ok', 'certified for the path'),
+              'blocked': ('bad', 'blocks the upgrade'),
+              'unknown': ('warn', 'not checked')}[vendor['status']]
+    rec = vendor.get('recommended')
+    rec_txt = (f" &rarr; upgrade to {rec['version']} with operator "
+               f"{rec['operator_min']}+" if rec and vendor['status'] != 'ok'
+               else '')
+    return (f'<tr><td class="label">{vendor["label"]}</td><td>'
+            f'{vendor["installed"] or "unknown"} '
+            f'<span class="badge {status[0]}">{status[1]}</span>{rec_txt} '
+            f'<a href="{vendor["source"]}">support matrix</a></td></tr>')
 
 
 def _page(title: str, body: str) -> str:
@@ -328,6 +349,7 @@ def generate_operator_report(catalogs: Dict[str, Dict], result: Dict,
   <tr><td class="label">Installed channel</td><td>{inp.get('resolved_channel', inp['channel'])}</td></tr>
   <tr><td class="label">Installed version</td><td><strong>{inp.get('resolved_version', inp['version'])}</strong></td></tr>
   <tr><td class="label">Max OCP version</td><td>{result.get('max_ocp_version') or '&mdash;'}</td></tr>
+  {_vendor_row(result.get('vendor'))}
   <tr><td class="label">Catalogs needed</td><td>{', '.join(result['catalogs']) or '&mdash;'}</td></tr>
   <tr><td class="label">Operator upgrades</td><td>{total}</td></tr>
 </table>"""
@@ -430,8 +452,36 @@ must be mirrored and deployed too.</div>
     return str(path)
 
 
+def _vendor_line(v: Optional[Dict]) -> str:
+    """The vendor support matrix's verdict for one OpenShift release."""
+    if not v:
+        return ''
+    name = f"{v['label']} {v['installed'] or '?'}"
+    if v['status'] == 'unknown':
+        return (f'<div class="cell-vendor warn">&#9888; {v["label"]} '
+                f'version unknown</div>')
+    short = v.get('operator_short')
+    op = (f'<div class="cell-vendor bad">&#10007; operator '
+          f'{short["installed"]}, {name} needs {short["required"]}+</div>'
+          if short else '')
+    if v['ok']:
+        return (f'<div class="cell-vendor ok">&#10003; {name} certified '
+                f'{v["certified"]}</div>{op}')
+    if v['certified'] is None:
+        return (f'<div class="cell-vendor bad">&#10007; {name} not '
+                f'certified on this release</div>')
+    return (f'<div class="cell-vendor bad">&#10007; {name} certified '
+            f'{v["certified"]}, needs {v["required"]}</div>')
+
+
 def _matrix_cell(cell: Dict, ocp_path: List[str]) -> str:
-    """One cell of the summary matrix, as built by build_matrix."""
+    """One cell of the summary matrix, with the vendor matrix's verdict."""
+    html = _matrix_cell_body(cell, ocp_path)
+    line = _vendor_line(cell.get('vendor'))
+    return html[:-len('</td>')] + line + '</td>' if line else html
+
+
+def _matrix_cell_body(cell: Dict, ocp_path: List[str]) -> str:
     kind = cell['kind']
     if kind == 'upgrade':
         hops = cell['hops']

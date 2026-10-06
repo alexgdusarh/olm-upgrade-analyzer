@@ -46,6 +46,10 @@ table.ops th { vertical-align:top; }
 .cell-none { color:#bbb; text-align:center; }
 .cell-meta { color:#555; font-size:12.5px; }
 .cell-opt { color:#3f51b5; }
+.cell-vendor { font-size:11.5px; margin-top:5px; padding-top:4px;
+               border-top:1px dashed #ddd; }
+.cell-vendor.ok { color:#4caf50; } .cell-vendor.bad { color:#e05252; }
+.cell-vendor.warn { color:#8a6100; }
 .cell-warn { color:#8a6100; background:#fff8e1; font-size:12.5px; }
 .cell-rule { border:none; border-top:1px dashed #ddd; margin:8px 0; }
 .legend { font-size:13px; color:#666; background:#f7f7fa; border-left:3px solid #ccd;
@@ -63,6 +67,7 @@ code { background:#eef; padding:1px 5px; border-radius:3px; font-size:13px; }
   <tr><td class="label">Installed channel</td><td>v5</td></tr>
   <tr><td class="label">Installed version</td><td><strong>5.24.0</strong></td></tr>
   <tr><td class="label">Max OCP version</td><td>&mdash;</td></tr>
+  
   <tr><td class="label">Catalogs needed</td><td>4.20</td></tr>
   <tr><td class="label">Operator upgrades</td><td>0</td></tr>
 </table><h2 style="margin-top:30px">Catalogs</h2><div class="phase">

@@ -168,6 +168,13 @@ catalogs a disconnected cluster must mirror.
   which shows the newest version as "available, optional" (or "no action"
   when already the newest), instead of each column naming the newest version
   of its own catalog.
+- Vendor support matrices (`constraints/vendor-support.json`, starting with
+  Portworx Enterprise 3.5.3 to 3.7.1): the installed release, from the
+  input's `component_versions` or `--component-version`, must be certified
+  on every OpenShift release of the path, up to the z-stream for the current
+  and target releases, with its operator minimum met. Otherwise the operator
+  blocks the upgrade and the lowest covering release at or above the
+  installed one is recommended. Each matrix column shows the vendor verdict.
 - Report graphs are deterministic: the SVG has fixed element ids and no
   timestamp, so rerunning on the same data leaves the reports unchanged.
 - An EUS path must start on an even minor, since EUS releases are the even
