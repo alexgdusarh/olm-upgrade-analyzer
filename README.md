@@ -44,6 +44,7 @@ Operators are grouped by the catalog index image they were installed from.
 
 ```json
 {
+  "cluster_name": "ocp5",
   "cluster": { "current": "4.18.28", "target": "4.20", "channel": "eus",
                "ocp_path": ["4.18", "4.19", "4.20"] },
   "operators": [
@@ -62,6 +63,7 @@ Operators are grouped by the catalog index image they were installed from.
 
 | Field | Required | Notes |
 |-------|----------|-------|
+| `cluster_name` | no | Names the cluster's output folder, `<output-dir>/<cluster_name>/`. `cluster-name` is accepted too. Characters other than letters, digits, `.`, `_` and `-` become `_`. Without it the outputs go straight into `<output-dir>` |
 | `cluster.current` | yes | OCP release the cluster is on now; the patch level is ignored |
 | `cluster.target` | yes | OCP release to reach |
 | `cluster.channel` | no | `eus` or anything else (`stable`, `fast`, ...). Default `stable` |
@@ -182,14 +184,14 @@ A mismatch is rejected rather than guessed:
 |------|---------|-------------|
 | `-i`, `--input` | stdin | Input JSON file |
 | `--catalog-dir` | — | Use hand-supplied catalogs from this directory for every catalog image instead of pulling them |
-| `--fetch-dir` | `<output-dir>/catalogs` | Where pulled catalogs are kept |
+| `--fetch-dir` | `<output-dir>/catalogs` | Where pulled catalogs are kept, shared by every cluster |
 | `--refresh` | off | Pull catalogs again even if a previous pull covers the packages |
 | `-a`, `--authfile` | pull secret | Registry credentials for pulling catalogs |
 | `--filter-by-os` | `linux/amd64` | Platform of the catalog image to pull |
 | `--jobs` | `4` | Catalog pulls to run at once |
 | `--insecure-registry` | off | Pull catalogs over HTTP or with an untrusted certificate |
-| `-d`, `--output-dir` | `.` | Where `html/` and `imageset-config.yaml` are written |
-| `--imageset-out` | `<output-dir>/imageset-config.yaml` | oc-mirror ImageSetConfiguration path |
+| `-d`, `--output-dir` | `output` | Holds one folder per cluster and the shared `catalogs/` |
+| `--imageset-out` | `<output-dir>/<cluster_name>/imageset-config.yaml` | oc-mirror ImageSetConfiguration path |
 | `-j`, `--json-out` | — | Also write the plan JSON to this file |
 | `-q`, `--quiet` | off | Suppress progress output on stderr |
 
@@ -206,11 +208,31 @@ Only releases on the path are read. A 4.18 to 4.20 EUS run opens 4.18, 4.19 and
 
 ## Output
 
-`html/index.html` is the cluster summary, with one column per catalog and the
-catalogs to mirror; `html/<operator>/index.html` is the per-operator report,
-one row group per catalog the operator is upgraded from — info table, graph,
-steps. `imageset-config.yaml` is the oc-mirror configuration. The plan JSON
-goes to stdout.
+One folder per cluster, named after `cluster_name`, so a single output
+directory can hold every cluster. The pulled catalogs are shared between them:
+
+```
+output/
+  catalogs/                       shared, pulled once per image and release
+    registry.redhat.io_redhat_redhat-operator-index/
+      data-v4.18.json  packages-v4.18.json  ...
+  ocp5/
+    html/index.html               cluster summary
+    html/<operator>/index.html    per-operator report
+    imageset-config.yaml          oc-mirror configuration
+    plan.json                     the plan, also printed to stdout
+  <next cluster>/
+    ...
+```
+
+The cluster summary has one column per catalog and lists the catalogs to
+mirror; the per-operator report has one row group per catalog the operator is
+upgraded from — info table, graph, steps.
+
+A shared catalog only grows: a cluster needing packages it lacks pulls it
+again for the existing packages plus the new ones. Clusters can be planned in
+parallel; each catalog is locked while it is checked and pulled, and written
+atomically.
 
 Abbreviated — each object carries more keys than shown:
 

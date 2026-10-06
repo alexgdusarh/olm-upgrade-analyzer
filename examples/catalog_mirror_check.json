@@ -1,4 +1,5 @@
 {
+    "cluster_name": "ocp5",
     "cluster": {
         "channel": "eus",
         "current": "4.18.28",

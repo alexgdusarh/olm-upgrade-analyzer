@@ -16,9 +16,15 @@ catalog in packages-v<major>.<minor>.json, for the oc-mirror configuration.
 
 The registry credentials come from --authfile, or from the cluster pull secret
 when no authfile is given.
+
+One catalog directory is shared by every cluster planned against it, so a pull
+adds its packages to those already there instead of replacing them, under a
+per-catalog lock so that clusters can be planned in parallel.
 """
 
+import fcntl
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -155,9 +161,17 @@ def read_package_dir(pkg_dir: Path):
     return [channels[k] for k in sorted(channels)], default
 
 
+def _write_atomic(path: Path, text: str):
+    """Replace path in one step, so a reader never sees half a file."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
 def write_catalog(path: Path, channels: List[Dict]):
     """Write olm.channel objects in the data-v<major>.<minor>.json format."""
-    path.write_text("\n".join(json.dumps(c, indent=2) for c in channels) + "\n")
+    _write_atomic(path, "\n".join(json.dumps(c, indent=2)
+                                  for c in channels) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -200,20 +214,34 @@ def fetch_catalog(image: str, ocp: str, packages: List[str], dest_dir: Path,
     covering at least the given packages.
 
     A catalog fetched earlier is reused when it already covers every package.
-    Returns {'image', 'path', 'missing', 'reused'}; 'missing' lists packages the
-    image does not carry.
+    Otherwise it is pulled again for its existing packages plus the new ones,
+    so a directory shared between clusters only grows; --refresh pulls only
+    the given packages. Returns {'image', 'path', 'missing', 'reused'};
+    'missing' lists packages the image does not carry.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     data_path = dest_dir / catalog_filename(ocp)
     pkgs_path = dest_dir / packages_filename(ocp)
     ref = retag(image, ocp)
 
-    if not refresh and data_path.is_file() and pkgs_path.is_file():
+    with open(dest_dir / f".lock-{packages_filename(ocp)}", 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _fetch_locked(ref, packages, data_path, pkgs_path, authfile,
+                             refresh, os_filter, insecure, log)
+
+
+def _fetch_locked(ref, packages, data_path, pkgs_path, authfile, refresh,
+                  os_filter, insecure, log) -> Dict:
+    known = {}
+    if data_path.is_file() and pkgs_path.is_file():
         known = json.loads(pkgs_path.read_text())
-        if set(packages) <= set(known):
-            return {'image': ref, 'path': str(data_path), 'reused': True,
-                    'missing': sorted(p for p in packages
-                                      if not known[p].get('present'))}
+    if not refresh and set(packages) <= set(known):
+        return {'image': ref, 'path': str(data_path), 'reused': True,
+                'missing': sorted(p for p in packages
+                                  if not known[p].get('present'))}
+    wanted = packages
+    if not refresh:
+        packages = sorted(set(packages) | set(known))
 
     if log:
         log(f"  extracting {len(packages)} package(s) from {ref}")
@@ -231,9 +259,9 @@ def fetch_catalog(image: str, ocp: str, packages: List[str], dest_dir: Path,
         shutil.rmtree(work, ignore_errors=True)
 
     write_catalog(data_path, channels)
-    pkgs_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
+    _write_atomic(pkgs_path, json.dumps(meta, indent=2, sort_keys=True) + "\n")
     return {'image': ref, 'path': str(data_path), 'reused': False,
-            'missing': sorted(p for p in packages if not meta[p]['present'])}
+            'missing': sorted(p for p in wanted if not meta[p]['present'])}
 
 
 def load_default_channels(catalog_dir: str, ocp: str) -> Dict[str, Optional[str]]:
