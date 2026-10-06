@@ -1,0 +1,55 @@
+{
+  "schema": "olm.channel",
+  "name": "v5",
+  "package": "grafana-operator",
+  "entries": [
+    {
+      "name": "grafana-operator.v5.15.1",
+      "skips": [
+        "grafana-operator.v5.14.0"
+      ]
+    },
+    {
+      "name": "grafana-operator.v5.17.1"
+    },
+    {
+      "name": "grafana-operator.v5.18.0"
+    },
+    {
+      "name": "grafana-operator.v5.19.4"
+    },
+    {
+      "name": "grafana-operator.v5.20.0",
+      "replaces": "grafana-operator.v5.15.1",
+      "skips": [
+        "grafana-operator.v5.16.0",
+        "grafana-operator.v5.17.0",
+        "grafana-operator.v5.17.1",
+        "grafana-operator.v5.18.0",
+        "grafana-operator.v5.19.4"
+      ]
+    },
+    {
+      "name": "grafana-operator.v5.21.1",
+      "replaces": "grafana-operator.v5.20.0"
+    },
+    {
+      "name": "grafana-operator.v5.21.2",
+      "replaces": "grafana-operator.v5.21.1"
+    },
+    {
+      "name": "grafana-operator.v5.22.0"
+    },
+    {
+      "name": "grafana-operator.v5.22.2"
+    },
+    {
+      "name": "grafana-operator.v5.24.0",
+      "replaces": "grafana-operator.v5.21.2",
+      "skips": [
+        "grafana-operator.v5.22.0",
+        "grafana-operator.v5.22.2"
+      ]
+    }
+  ]
+}

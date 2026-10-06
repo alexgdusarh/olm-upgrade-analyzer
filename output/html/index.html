@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cluster Operator Upgrade Plan</title><style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       background:#f5f5f5; margin:0; padding:20px; }
+.container { max-width:1400px; margin:0 auto; background:#fff; border-radius:12px;
+             box-shadow:0 2px 10px rgba(0,0,0,.1); padding:40px; }
+h1 { color:#333; margin:0 0 6px; }
+h2 { color:#333; font-size:18px; margin:0 0 16px; }
+.subtitle { color:#666; margin-bottom:26px; font-size:14px; }
+table.info { width:100%; border-collapse:collapse; margin-bottom:18px;
+             border-left:4px solid #667eea; background:#f9f9f9; }
+table.info td { padding:10px 15px; border-bottom:1px solid #e6e6e6; font-size:14px; color:#333; }
+table.info tr:last-child td { border-bottom:none; }
+table.info td.label { font-weight:600; color:#667eea; width:220px; }
+.badge { display:inline-block; padding:4px 11px; border-radius:20px; font-size:12px;
+         font-weight:600; color:#fff; background:#667eea; margin-right:6px; }
+.badge.ok { background:#4caf50; } .badge.warn { background:#f0a020; }
+.badge.bad { background:#e05252; } .badge.grey { background:#9e9e9e; }
+.phase { border:1px solid #e0e0e0; border-radius:8px; padding:24px; margin-bottom:26px;
+         background:#fcfcfc; }
+.phase-head { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.phase-num { background:#667eea; color:#fff; border-radius:50%; width:34px; height:34px;
+             display:flex; align-items:center; justify-content:center; font-weight:bold;
+             flex-shrink:0; }
+.graph { border:1px solid #ddd; border-radius:8px; background:#fafafa; padding:16px;
+         text-align:center; overflow-x:auto; margin-bottom:16px; }
+.graph svg { max-width:100%; height:auto; }
+.step { background:#f4f4f8; border-left:4px solid #667eea; padding:11px 14px;
+        border-radius:4px; margin-bottom:9px; font-size:14px; color:#333; }
+.none { color:#777; font-style:italic; font-size:14px; padding:8px 0; }
+.notes { background:#fff8e1; border-left:4px solid #f0a020; padding:16px;
+         border-radius:4px; margin-top:22px; }
+.notes h3 { margin:0 0 8px; color:#8a6100; font-size:15px; }
+.notes li { color:#8a6100; font-size:13.5px; margin-bottom:6px; }
+table.ops { width:100%; border-collapse:collapse; margin-top:10px; }
+table.ops th { text-align:left; padding:11px 14px; background:#667eea; color:#fff;
+               font-size:13px; }
+table.ops td { padding:11px 14px; border-bottom:1px solid #eee; font-size:14px; color:#333; }
+table.ops tr:hover td { background:#fafafa; }
+table.ops th { vertical-align:top; }
+.th-sub { font-weight:400; font-size:11px; opacity:.85; margin-top:3px; }
+.cell-sub { font-size:11.5px; color:#777; margin-top:3px; }
+.cell-ok { color:#4caf50; } .cell-bad { color:#e05252; }
+.cell-none { color:#bbb; text-align:center; }
+.cell-rule { border:none; border-top:1px dashed #ddd; margin:8px 0; }
+.legend { font-size:13px; color:#666; background:#f7f7fa; border-left:3px solid #ccd;
+          padding:11px 14px; border-radius:4px; margin-bottom:14px; }
+a { color:#667eea; text-decoration:none; } a:hover { text-decoration:underline; }
+code { background:#eef; padding:1px 5px; border-radius:3px; font-size:13px; }
+</style></head>
+<body><div class="container"><h1>Cluster Operator Upgrade Plan</h1>
+<div class="subtitle">OCP 4.18.28 &rarr; 4.20
+(eus channel)</div>
+<table class="info">
+  <tr><td class="label">Overall verdict</td><td><span class="badge warn">Operator upgrade required</span></td></tr>
+  <tr><td class="label">Cluster path</td><td>4.18 &rarr; 4.19 &rarr; 4.20</td></tr>
+  <tr><td class="label">Operators analysed</td><td>2</td></tr>
+  
+  
+  <tr><td class="label">Upgrade required</td><td><span class="badge warn">openshift-cert-manager-operator</span></td></tr>
+</table>
+
+<h2 style="margin-top:30px">Operators</h2>
+<div class="legend">Each column is the OCP release the cluster is running when
+that operator work happens. The cluster upgrade itself happens between columns.
+<em>Before the hop</em> means the operator must be moved before the cluster can
+leave that release; <em>on arrival</em> means it is moved once the cluster has
+landed there.</div>
+<table class="ops">
+  <tr><th>Operator</th><th>Installed</th><th>Verdict</th><th>While on OCP 4.18<div class="th-sub">then upgrade cluster to 4.19</div></th><th>While on OCP 4.19<div class="th-sub">then upgrade cluster to 4.20</div></th><th>While on OCP 4.20<div class="th-sub">cluster upgrade complete</div></th></tr>
+  <tr><td><a href="grafana-operator/index.html">grafana-operator</a></td><td>v5<br><strong>5.24.0</strong></td><td><span class="badge ok">No action required</span></td><td><span class="cell-ok">&#10003; no action</span></td><td><span class="cell-ok">&#10003; no action</span></td><td><span class="cell-ok">&#10003; no action</span></td></tr><tr><td><a href="openshift-cert-manager-operator/index.html">openshift-cert-manager-operator</a></td><td>stable-v1<br><strong>1.19.2</strong></td><td><span class="badge warn">Operator upgrade required</span></td><td>stable-v1.19<br><strong>1.19.2</strong><div class="cell-sub">channel switch only, before the hop</div></td><td><span class="cell-ok">&#10003; no action</span></td><td>stable-v1.20<br><strong>1.20.1</strong><div class="cell-sub">2 upgrades, on arrival</div></td></tr>
+</table>
+<h2 style="margin-top:30px">Catalog mirroring</h2>
+<div class="legend">Each operator is first checked against the target catalog
+alone, since that is usually the only catalog mirrored. <em>CRITICAL</em> means
+it cannot be upgraded from there, and the listed intermediate catalog must be
+mirrored and deployed too. The oc-mirror configuration is written to
+<code>output/imageset-config.yaml</code>.</div>
+<table class="info"><tr><td class="label">OCP 4.20</td><td><code>registry.redhat.io/redhat/community-operator-index:v4.20</code><br><code>registry.redhat.io/redhat/redhat-operator-index:v4.20</code></td></tr></table>
+<table class="ops">
+  <tr><th>Operator</th><th>Status</th><th>Catalogs needed</th><th>Upgrades</th></tr>
+  <tr><td>grafana-operator</td><td><span class="badge ok">OK</span></td><td>4.20</td><td>&mdash;</td></tr><tr><td>openshift-cert-manager-operator</td><td><span class="badge ok">OK</span></td><td>4.20</td><td>4.20: stable-v1 <strong>1.20.0</strong> (skipRange)<br>4.20: stable-v1.20 <strong>1.20.1</strong> (skipRange)</td></tr>
+</table></div></body></html>

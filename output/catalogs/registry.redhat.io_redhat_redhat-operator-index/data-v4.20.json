@@ -1,0 +1,369 @@
+{
+  "schema": "olm.channel",
+  "name": "fast",
+  "package": "devworkspace-operator",
+  "entries": [
+    {
+      "name": "devworkspace-operator.v0.10.0",
+      "replaces": "devworkspace-operator.v0.9.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.11.0",
+      "replaces": "devworkspace-operator.v0.10.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.12.0",
+      "replaces": "devworkspace-operator.v0.11.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.13.0",
+      "replaces": "devworkspace-operator.v0.12.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.14.1",
+      "replaces": "devworkspace-operator.v0.13.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.15.2"
+    },
+    {
+      "name": "devworkspace-operator.v0.15.2-0.1661828401.p",
+      "replaces": "devworkspace-operator.v0.14.1",
+      "skips": [
+        "devworkspace-operator.v0.15.2"
+      ]
+    },
+    {
+      "name": "devworkspace-operator.v0.16.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.16.0-0.1666668361.p",
+      "replaces": "devworkspace-operator.v0.15.2-0.1661828401.p",
+      "skips": [
+        "devworkspace-operator.v0.16.0"
+      ]
+    },
+    {
+      "name": "devworkspace-operator.v0.17.0",
+      "replaces": "devworkspace-operator.v0.16.0-0.1666668361.p"
+    },
+    {
+      "name": "devworkspace-operator.v0.18.1"
+    },
+    {
+      "name": "devworkspace-operator.v0.18.1-0.1675929565.p",
+      "replaces": "devworkspace-operator.v0.17.0",
+      "skips": [
+        "devworkspace-operator.v0.18.1"
+      ]
+    },
+    {
+      "name": "devworkspace-operator.v0.19.1"
+    },
+    {
+      "name": "devworkspace-operator.v0.19.1-0.1679521112.p"
+    },
+    {
+      "name": "devworkspace-operator.v0.19.1-0.1682321189.p",
+      "replaces": "devworkspace-operator.v0.18.1-0.1675929565.p",
+      "skips": [
+        "devworkspace-operator.v0.19.1",
+        "devworkspace-operator.v0.19.1-0.1679521112.p"
+      ]
+    },
+    {
+      "name": "devworkspace-operator.v0.20.0",
+      "replaces": "devworkspace-operator.v0.19.1-0.1682321189.p"
+    },
+    {
+      "name": "devworkspace-operator.v0.21.1",
+      "replaces": "devworkspace-operator.v0.20.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.21.2",
+      "replaces": "devworkspace-operator.v0.21.1"
+    },
+    {
+      "name": "devworkspace-operator.v0.22.0",
+      "replaces": "devworkspace-operator.v0.21.2"
+    },
+    {
+      "name": "devworkspace-operator.v0.23.0",
+      "replaces": "devworkspace-operator.v0.22.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.24.0",
+      "replaces": "devworkspace-operator.v0.23.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.25.0",
+      "replaces": "devworkspace-operator.v0.24.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.26.0",
+      "replaces": "devworkspace-operator.v0.25.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.27.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.27.0-0.1714987663.p",
+      "replaces": "devworkspace-operator.v0.26.0",
+      "skips": [
+        "devworkspace-operator.v0.27.0"
+      ]
+    },
+    {
+      "name": "devworkspace-operator.v0.28.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.28.0-0.1719314743.p",
+      "replaces": "devworkspace-operator.v0.27.0-0.1714987663.p",
+      "skips": [
+        "devworkspace-operator.v0.28.0"
+      ]
+    },
+    {
+      "name": "devworkspace-operator.v0.29.0",
+      "replaces": "devworkspace-operator.v0.28.0-0.1719314743.p"
+    },
+    {
+      "name": "devworkspace-operator.v0.30.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.30.1"
+    },
+    {
+      "name": "devworkspace-operator.v0.30.2",
+      "replaces": "devworkspace-operator.v0.29.0",
+      "skips": [
+        "devworkspace-operator.v0.30.0",
+        "devworkspace-operator.v0.30.1"
+      ]
+    },
+    {
+      "name": "devworkspace-operator.v0.31.0",
+      "replaces": "devworkspace-operator.v0.30.2"
+    },
+    {
+      "name": "devworkspace-operator.v0.31.1",
+      "replaces": "devworkspace-operator.v0.31.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.31.2",
+      "replaces": "devworkspace-operator.v0.31.1"
+    },
+    {
+      "name": "devworkspace-operator.v0.32.1",
+      "replaces": "devworkspace-operator.v0.31.2"
+    },
+    {
+      "name": "devworkspace-operator.v0.9.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.33.0",
+      "replaces": "devworkspace-operator.v0.32.1"
+    },
+    {
+      "name": "devworkspace-operator.v0.34.0",
+      "replaces": "devworkspace-operator.v0.33.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.35.1",
+      "replaces": "devworkspace-operator.v0.34.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.36.0",
+      "replaces": "devworkspace-operator.v0.35.1"
+    },
+    {
+      "name": "devworkspace-operator.v0.37.0",
+      "replaces": "devworkspace-operator.v0.36.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.38.0",
+      "replaces": "devworkspace-operator.v0.37.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.39.0",
+      "replaces": "devworkspace-operator.v0.38.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.40.0",
+      "replaces": "devworkspace-operator.v0.39.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.40.1",
+      "replaces": "devworkspace-operator.v0.40.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.41.0",
+      "replaces": "devworkspace-operator.v0.40.1"
+    },
+    {
+      "name": "devworkspace-operator.v0.42.0",
+      "replaces": "devworkspace-operator.v0.41.0"
+    },
+    {
+      "name": "devworkspace-operator.v0.43.0",
+      "replaces": "devworkspace-operator.v0.42.0"
+    }
+  ]
+}
+{
+  "entries": [
+    {
+      "name": "cert-manager-operator.v1.17.0",
+      "replaces": "cert-manager-operator.v1.16.1",
+      "skipRange": ">=1.16.1 <1.17.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.18.0",
+      "replaces": "cert-manager-operator.v1.17.0",
+      "skipRange": ">=1.17.0 <1.18.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.18.1",
+      "replaces": "cert-manager-operator.v1.18.0",
+      "skipRange": ">=1.18.0 <1.18.1"
+    },
+    {
+      "name": "cert-manager-operator.v1.19.0",
+      "replaces": "cert-manager-operator.v1.18.1",
+      "skipRange": ">=1.18.1 <1.19.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.20.0",
+      "replaces": "cert-manager-operator.v1.19.0",
+      "skipRange": ">=1.19.0 <1.20.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.20.1",
+      "replaces": "cert-manager-operator.v1.20.0",
+      "skipRange": ">=1.20.0 <1.20.1"
+    }
+  ],
+  "name": "stable-v1",
+  "package": "openshift-cert-manager-operator",
+  "schema": "olm.channel"
+}
+{
+  "entries": [
+    {
+      "name": "cert-manager-operator.v1.17.0",
+      "replaces": "cert-manager-operator.v1.16.1",
+      "skipRange": ">=1.16.1 <1.17.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.17.1",
+      "replaces": "cert-manager-operator.v1.17.0",
+      "skipRange": ">=1.17.0 <1.17.1"
+    }
+  ],
+  "name": "stable-v1.17",
+  "package": "openshift-cert-manager-operator",
+  "schema": "olm.channel"
+}
+{
+  "entries": [
+    {
+      "name": "cert-manager-operator.v1.17.0",
+      "replaces": "cert-manager-operator.v1.16.1",
+      "skipRange": ">=1.16.1 <1.17.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.18.0",
+      "replaces": "cert-manager-operator.v1.17.0",
+      "skipRange": ">=1.17.0 <1.18.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.18.1",
+      "replaces": "cert-manager-operator.v1.18.0",
+      "skipRange": ">=1.18.0 <1.18.1"
+    }
+  ],
+  "name": "stable-v1.18",
+  "package": "openshift-cert-manager-operator",
+  "schema": "olm.channel"
+}
+{
+  "entries": [
+    {
+      "name": "cert-manager-operator.v1.17.0",
+      "replaces": "cert-manager-operator.v1.16.1",
+      "skipRange": ">=1.16.1 <1.17.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.18.0",
+      "replaces": "cert-manager-operator.v1.17.0",
+      "skipRange": ">=1.17.0 <1.18.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.18.1",
+      "replaces": "cert-manager-operator.v1.18.0",
+      "skipRange": ">=1.18.0 <1.18.1"
+    },
+    {
+      "name": "cert-manager-operator.v1.19.0",
+      "replaces": "cert-manager-operator.v1.18.1",
+      "skipRange": ">=1.18.1 <1.19.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.19.1",
+      "replaces": "cert-manager-operator.v1.18.1",
+      "skipRange": ">=1.18.1 <1.19.1",
+      "skips": [
+        "cert-manager-operator.v1.19.0"
+      ]
+    },
+    {
+      "name": "cert-manager-operator.v1.19.2",
+      "replaces": "cert-manager-operator.v1.18.1",
+      "skipRange": ">=1.18.1 <1.19.2",
+      "skips": [
+        "cert-manager-operator.v1.19.0",
+        "cert-manager-operator.v1.19.1"
+      ]
+    }
+  ],
+  "name": "stable-v1.19",
+  "package": "openshift-cert-manager-operator",
+  "schema": "olm.channel"
+}
+{
+  "entries": [
+    {
+      "name": "cert-manager-operator.v1.17.0",
+      "replaces": "cert-manager-operator.v1.16.1",
+      "skipRange": ">=1.16.1 <1.17.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.18.0",
+      "replaces": "cert-manager-operator.v1.17.0",
+      "skipRange": ">=1.17.0 <1.18.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.18.1",
+      "replaces": "cert-manager-operator.v1.18.0",
+      "skipRange": ">=1.18.0 <1.18.1"
+    },
+    {
+      "name": "cert-manager-operator.v1.19.0",
+      "replaces": "cert-manager-operator.v1.18.1",
+      "skipRange": ">=1.18.1 <1.19.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.20.0",
+      "replaces": "cert-manager-operator.v1.19.0",
+      "skipRange": ">=1.19.0 <1.20.0"
+    },
+    {
+      "name": "cert-manager-operator.v1.20.1",
+      "replaces": "cert-manager-operator.v1.20.0",
+      "skipRange": ">=1.20.0 <1.20.1"
+    }
+  ],
+  "name": "stable-v1.20",
+  "package": "openshift-cert-manager-operator",
+  "schema": "olm.channel"
+}
