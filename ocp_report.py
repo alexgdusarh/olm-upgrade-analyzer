@@ -2,9 +2,10 @@
 """
 HTML reporting for the OCP upgrade planner.
 
-One report per operator. Each phase gets its own row group: info table, graph
-and steps, so the reader can see what happens on each OCP release separately.
-A cluster summary page links them together.
+One report per operator. Each phase is the work done from one catalog - an
+intermediate catalog when the target cannot cover the operator, then the target
+catalog - with its own info table, graph and steps. A cluster summary page links
+them together and lists the catalogs to mirror.
 """
 
 from io import StringIO
@@ -28,14 +29,12 @@ BLUE = '#e3f2fd'
 STATUS_LABEL = {
     'no_action': 'No action required',
     'upgrade_required': 'Operator upgrade required',
-    'upgrade_available': 'Upgrade to latest',
-    'blocked': 'Blocked',
-    'unreachable': 'No reachable valid target',
 }
 
 VERDICT_LABEL = {
     'no_action_required': 'No action required',
     'operator_upgrade_required': 'Operator upgrade required',
+    'intermediate_catalog_required': 'CRITICAL: intermediate catalog required',
     'manual_review': 'Manual review required',
     'blocked': 'Blocked',
 }
@@ -43,6 +42,7 @@ VERDICT_LABEL = {
 VERDICT_CLASS = {
     'no_action_required': 'ok',
     'operator_upgrade_required': 'warn',
+    'intermediate_catalog_required': 'bad',
     'manual_review': 'warn',
     'blocked': 'bad',
 }
@@ -223,29 +223,19 @@ def _page(title: str, body: str) -> str:
 def _phase_html(catalog: Dict, pkg: str, phase: Dict) -> str:
     status = phase['status']
     label = STATUS_LABEL.get(status, status)
-    cls = {'no_action': 'ok', 'upgrade_required': 'warn',
-           'upgrade_available': 'grey', 'blocked': 'bad',
-           'unreachable': 'bad'}.get(status, '')
+    cls = {'no_action': 'ok', 'upgrade_required': 'warn'}.get(status, '')
 
     frm, to = phase['from'], phase['to']
-    kind = {'pre-upgrade': 'Before the cluster moves',
-            'per-release': 'After the cluster reaches this release',
-            'post-upgrade': 'After the cluster upgrade'}.get(
-                phase['kind'], phase['kind'])
-    satisfies = ' and '.join(phase['satisfies'])
-
-    if phase['kind'] == 'pre-upgrade':
-        purpose = (f"Must be valid on OCP {satisfies} so the cluster can move "
-                   f"from {phase['satisfies'][0]} to {phase['satisfies'][1]}.")
-    elif phase['kind'] == 'per-release':
-        purpose = (f"Cluster has arrived on OCP {phase['on_ocp']}. Switch to "
-                   f"this release's channel and take its latest version.")
+    if phase['kind'] == 'intermediate':
+        kind = 'Intermediate catalog'
+        purpose = ("The target catalog does not cover the installed version. "
+                   "Mirror and deploy this catalog, and upgrade from it first.")
     else:
-        purpose = f"Cluster is on OCP {phase['on_ocp']}. Take the operator to latest."
+        kind = 'Target catalog'
+        purpose = "The catalog every operator is checked against first."
 
     info = f"""<table class="info">
-  <tr><td class="label">Runs on OCP</td><td><strong>{phase['on_ocp']}</strong></td></tr>
-  <tr><td class="label">Must satisfy</td><td>{satisfies}</td></tr>
+  <tr><td class="label">Catalog</td><td><strong>OCP {phase['on_ocp']}</strong></td></tr>
   <tr><td class="label">Current channel</td><td>{frm['channel']}</td></tr>
   <tr><td class="label">Current version</td><td><strong>{frm['version']}</strong></td></tr>
   <tr><td class="label">Target channel</td><td>{to['channel']}</td></tr>
@@ -268,8 +258,8 @@ def _phase_html(catalog: Dict, pkg: str, phase: Dict) -> str:
                           f'<strong>{s["to_version"]}</strong> in channel '
                           f'<code>{s["to_channel"]}</code> (via {s["via"]})</div>')
     else:
-        steps = ('<div class="none">Nothing to do &mdash; the operator is already '
-                 'valid here.</div>')
+        steps = ('<div class="none">Nothing to do &mdash; this catalog still '
+                 'ships the installed version.</div>')
 
     svg = _phase_graph(catalog, pkg, phase)
     graph = f'<div class="graph">{svg}</div>' if svg else ''
@@ -300,7 +290,7 @@ def generate_operator_report(catalogs: Dict[str, Dict], result: Dict,
               if result['version_pinned'] else '')
 
     total = sum(p['hops'] for p in result['phases'])
-    pre = sum(p['hops'] for p in result['phases'] if p['kind'] == 'pre-upgrade')
+    inp = result['input']
 
     header = f"""<h1>{pkg}</h1>
 <div class="subtitle">Operator upgrade plan for the OCP
@@ -308,10 +298,12 @@ def generate_operator_report(catalogs: Dict[str, Dict], result: Dict,
 <table class="info">
   <tr><td class="label">Verdict</td><td>{badge}{pinned}</td></tr>
   <tr><td class="label">Cluster path</td><td>{' &rarr; '.join(ocp_path)}</td></tr>
-  <tr><td class="label">Installed channel</td><td>{result['input']['channel']}</td></tr>
-  <tr><td class="label">Installed version</td><td><strong>{result['input']['version']}</strong></td></tr>
-  <tr><td class="label">Upgrades before cluster can move</td><td><strong>{pre}</strong></td></tr>
-  <tr><td class="label">Total operator upgrades</td><td>{total}</td></tr>
+  <tr><td class="label">Catalog image</td><td><code>{result.get('catalog_image', '')}</code></td></tr>
+  <tr><td class="label">Installed channel</td><td>{inp.get('resolved_channel', inp['channel'])}</td></tr>
+  <tr><td class="label">Installed version</td><td><strong>{inp.get('resolved_version', inp['version'])}</strong></td></tr>
+  <tr><td class="label">Max OCP version</td><td>{result.get('max_ocp_version') or '&mdash;'}</td></tr>
+  <tr><td class="label">Catalogs needed</td><td>{', '.join(result['catalogs']) or '&mdash;'}</td></tr>
+  <tr><td class="label">Operator upgrades</td><td>{total}</td></tr>
 </table>"""
 
     if result['phases']:
@@ -325,7 +317,7 @@ def generate_operator_report(catalogs: Dict[str, Dict], result: Dict,
         items = "".join(f"<li>{n}</li>" for n in result['notes'])
         notes = f'<div class="notes"><h3>Notes</h3><ul>{items}</ul></div>'
 
-    body = (header + '<h2 style="margin-top:30px">Phases</h2>' + phases + notes
+    body = (header + '<h2 style="margin-top:30px">Catalogs</h2>' + phases + notes
             + '<p style="margin-top:26px"><a href="../index.html">'
               '&larr; Back to cluster summary</a></p>')
 
@@ -344,55 +336,40 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
     badge = (f'<span class="badge {VERDICT_CLASS.get(verdict, "")}">'
              f'{VERDICT_LABEL.get(verdict, verdict)}</span>')
 
-    # Columns are OCP releases, not phase numbers. A phase index means
-    # different things for different operators - a pinned operator's first
-    # phase happens after the first hop, a floating operator's before it - so
-    # numbering them side by side would compare unlike things.
+    # Columns are catalogs, oldest first. The target catalog is always
+    # checked; earlier ones only appear when the target cannot cover an
+    # operator.
     head = ""
-    for i, ocp in enumerate(ocp_path):
-        if i < len(ocp_path) - 1:
-            sub = f"then upgrade cluster to {ocp_path[i + 1]}"
-        else:
-            sub = "cluster upgrade complete"
-        head += (f'<th>While on OCP {ocp}'
+    for ocp in ocp_path:
+        sub = ('target catalog' if ocp == cluster['target']
+               else 'intermediate, only if needed')
+        head += (f'<th>From the {ocp} catalog'
                  f'<div class="th-sub">{sub}</div></th>')
 
     rows = ""
     for op in plan['operators']:
         v = op['verdict']
-        by_release = {}
-        for ph in op['phases']:
-            by_release.setdefault(ph['on_ocp'], []).append(ph)
-
+        by_catalog = {ph['on_ocp']: ph for ph in op['phases']}
         cells = ""
         for ocp in ocp_path:
-            phases = by_release.get(ocp)
-            if not phases:
+            ph = by_catalog.get(ocp)
+            if not ph:
                 cells += '<td class="cell-none">&mdash;</td>'
-                continue
-            parts = []
-            for ph in phases:
-                if ph['status'] == 'no_action':
-                    parts.append('<span class="cell-ok">&#10003; no action</span>')
-                elif ph['status'] in ('blocked', 'unreachable'):
-                    parts.append(f'<span class="cell-bad">{ph["status"]}</span>')
-                else:
-                    when = ('before the hop' if ph['kind'] == 'pre-upgrade'
-                            else 'on arrival')
-                    if ph['hops']:
-                        what = (f"{ph['hops']} upgrade"
-                                + ('s' if ph['hops'] != 1 else ''))
-                    else:
-                        what = 'channel switch only'
-                    parts.append(
-                        f'{ph["to"]["channel"]}<br><strong>{ph["to"]["version"]}'
-                        f'</strong><div class="cell-sub">{what}, {when}</div>')
-            cells += '<td>' + '<hr class="cell-rule">'.join(parts) + '</td>'
+            elif ph['status'] == 'no_action':
+                cells += '<td><span class="cell-ok">&#10003; no action</span></td>'
+            else:
+                what = (f"{ph['hops']} upgrade" + ('s' if ph['hops'] != 1 else '')
+                        if ph['hops'] else 'channel switch only')
+                cells += (f'<td>{ph["to"]["channel"]}<br><strong>'
+                          f'{ph["to"]["version"]}</strong>'
+                          f'<div class="cell-sub">{what}</div></td>')
 
+        inp = op['input']
         rows += (f'<tr><td><a href="{op["operator"]}/index.html">'
                  f'{op["operator"]}</a></td>'
-                 f'<td>{op["input"]["channel"]}<br>'
-                 f'<strong>{op["input"]["version"]}</strong></td>'
+                 f'<td>{inp.get("resolved_channel", inp["channel"])}<br>'
+                 f'<strong>{inp.get("resolved_version", inp["version"])}'
+                 f'</strong></td>'
                  f'<td><span class="badge {VERDICT_CLASS.get(v, "")}">'
                  f'{VERDICT_LABEL.get(v, v)}</span></td>{cells}</tr>')
 
@@ -410,23 +387,24 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
   <tr><td class="label">Overall verdict</td><td>{badge}</td></tr>
   <tr><td class="label">Cluster path</td><td>{' &rarr; '.join(ocp_path)}</td></tr>
   <tr><td class="label">Operators analysed</td><td>{len(plan['operators'])}</td></tr>
-  {listing(plan['blocking_operators'], 'Blocking', 'bad')}
+  {listing(plan['blocking_operators'], 'Blocked', 'bad')}
+  {listing(plan['intermediate_catalog_operators'], 'Intermediate catalog required', 'bad')}
   {listing(plan['manual_review_operators'], 'Manual review', 'warn')}
   {listing(plan['operators_requiring_upgrade'], 'Upgrade required', 'warn')}
 </table>
 
 <h2 style="margin-top:30px">Operators</h2>
-<div class="legend">Each column is the OCP release the cluster is running when
-that operator work happens. The cluster upgrade itself happens between columns.
-<em>Before the hop</em> means the operator must be moved before the cluster can
-leave that release; <em>on arrival</em> means it is moved once the cluster has
-landed there.</div>
+<div class="legend">Every operator is checked against the target catalog first:
+it is covered when that catalog still ships the installed version, or has a
+skipRange, replaces or skips edge from it. Only when it is not covered does an
+earlier catalog appear, working backwards from the target, and that catalog
+must be mirrored and deployed too.</div>
 <table class="ops">
   <tr><th>Operator</th><th>Installed</th><th>Verdict</th>{head}</tr>
   {rows}
 </table>"""
 
-    body += _mirror_html(plan['mirror'])
+    body += _mirror_html(plan)
 
     out = Path(output_dir) / 'html'
     out.mkdir(parents=True, exist_ok=True)
@@ -435,39 +413,15 @@ landed there.</div>
     return str(path)
 
 
-MIRROR_CLASS = {'ok': 'ok', 'critical': 'bad', 'unresolved': 'bad'}
-
-
-def _mirror_html(mirror: Dict) -> str:
-    """Which catalogs must be mirrored, and why, for a disconnected cluster."""
-    catalogs = "".join(
+def _mirror_html(plan: Dict) -> str:
+    """The catalog images to mirror, per release."""
+    rows = "".join(
         f'<tr><td class="label">OCP {ocp}</td><td>'
         + "<br>".join(f"<code>{img}</code>" for img in images) + '</td></tr>'
-        for ocp, images in mirror['catalogs_to_mirror'].items())
-
-    rows = ""
-    for chk in mirror['operators']:
-        status = chk['status']
-        steps = "<br>".join(
-            f"{s['catalog']}: {s['to_channel']} <strong>{s['to_version']}"
-            f"</strong> ({s['via']})" for s in chk['steps']) or '&mdash;'
-        notes = "".join(f"<div class=\"cell-sub\">{n}</div>"
-                        for n in chk['notes'])
-        rows += (f'<tr><td>{chk["operator"]}</td>'
-                 f'<td><span class="badge {MIRROR_CLASS.get(status, "warn")}">'
-                 f'{status.upper()}</span>{notes}</td>'
-                 f'<td>{", ".join(chk["catalogs"]) or "&mdash;"}</td>'
-                 f'<td>{steps}</td></tr>')
-
+        for ocp, images in plan['catalogs_to_mirror'].items())
     return f"""
-<h2 style="margin-top:30px">Catalog mirroring</h2>
-<div class="legend">Each operator is first checked against the target catalog
-alone, since that is usually the only catalog mirrored. <em>CRITICAL</em> means
-it cannot be upgraded from there, and the listed intermediate catalog must be
-mirrored and deployed too. The oc-mirror configuration is written to
-<code>{mirror.get('imageset_config', '')}</code>.</div>
-<table class="info">{catalogs}</table>
-<table class="ops">
-  <tr><th>Operator</th><th>Status</th><th>Catalogs needed</th><th>Upgrades</th></tr>
-  {rows}
-</table>"""
+<h2 style="margin-top:30px">Catalogs to mirror</h2>
+<div class="legend">The oc-mirror configuration listing the packages, channels
+and versions needed from each is written to
+<code>{plan['imageset_config']}</code>.</div>
+<table class="info">{rows}</table>"""

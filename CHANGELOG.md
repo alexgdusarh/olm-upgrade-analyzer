@@ -115,8 +115,9 @@ Adds OCP cluster upgrade planning across one catalog per OCP release.
 
 ## [Unreleased]
 
-Catalogs are pulled at run time instead of being supplied by hand, and the
-catalogs a disconnected cluster must mirror are worked out.
+Catalogs are pulled at run time instead of being supplied by hand, and every
+operator is planned backwards from the target catalog, which also gives the
+catalogs a disconnected cluster must mirror.
 
 ### Added
 - The catalog mirror check written by ocp_preupgrade_health_check (task 89b),
@@ -130,16 +131,23 @@ catalogs a disconnected cluster must mirror are worked out.
   previously supplied by hand. Credentials come from `--authfile` or the
   cluster pull secret. Pulls run in parallel (`--jobs`) and are reused on later
   runs unless `--refresh` is given.
-- `mirror_plan.py` checks each operator against the target catalog first. One
-  that cannot be upgraded from there is reported CRITICAL, and the intermediate
-  catalog that bridges the gap (for example 4.19 on a 4.18 to 4.20 EUS path) is
-  identified so it can be mirrored and deployed too.
+- `mirror_plan.py` plans each operator against the target catalog first: it is
+  covered when that catalog still ships the installed version or has a
+  skipRange, replaces or skips edge from it, and the shortest path comes from
+  there. Only when the target does not cover it are earlier catalogs added,
+  working backwards (4.19 on a 4.18 to 4.20 EUS path, then 4.18); that is
+  reported CRITICAL as `intermediate_catalog_required`.
+- Verdicts `no_action_required` (still shipped by the target catalog),
+  `operator_upgrade_required` (gone from it but covered, or `max_ocp_version`
+  below the target), `intermediate_catalog_required`, `blocked` (package gone
+  from the target catalog) and `manual_review`.
 - An oc-mirror v2 `ImageSetConfiguration` (`imageset-config.yaml`) listing,
   per catalog version, the packages, channels and version ranges to mirror.
   Dependencies are included at their channel head.
-- A *Catalog mirroring* table on the summary page, a `mirror` object in the plan
-  JSON, and exit code 4 when an intermediate catalog is needed.
-- An installed bundle whose `max_ocp_version` is below the target is reported.
+- The summary page has one column per catalog and lists the catalogs to
+  mirror; the plan JSON carries `catalogs_to_mirror` and `imageset_config`.
+  Exit code 4 when an intermediate catalog is needed; 3 now means a package is
+  gone from the target catalog.
 
 ### Removed
 - The flat operator-list input (`name`/`channel`/`version` per operator). The
@@ -148,8 +156,15 @@ catalogs a disconnected cluster must mirror are worked out.
   parent walk and recursive scan). Catalogs are pulled, or read from an explicit
   `--catalog-dir`.
 - `plan_cluster()` in `ocp_planner.py`, the flat-input entry point.
+- Forward, hop-by-hop planning: the pairwise rule that an operator must sit at
+  a version present in both catalogs of each hop, the release-pinned and
+  floating models, and non-monotonic catalog detection. The pairwise rule
+  reported operators such as OADP 1.4 as blocked although the target catalog's
+  skipRange covers them.
 
 ### Changed
 - `skips` is now an upgrade edge alongside `replaces` and `skipRange`.
+- An EUS path must start on an even minor, since EUS releases are the even
+  ones.
 - The example input is now `examples/catalog_mirror_check.json`, replacing
   `examples/cluster.json` and `cluster_operators_installed.json`.
