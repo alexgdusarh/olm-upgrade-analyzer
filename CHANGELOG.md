@@ -112,3 +112,44 @@ Adds OCP cluster upgrade planning across one catalog per OCP release.
 - The algorithm document predating the planner, generated HTML reports checked
   in as samples, and inputs captured during development. The example input is a
   single template.
+
+## [Unreleased]
+
+Catalogs are pulled at run time instead of being supplied by hand, and the
+catalogs a disconnected cluster must mirror are worked out.
+
+### Added
+- The catalog mirror check written by ocp_preupgrade_health_check (task 89b),
+  `outputs/catalog_mirror_check.json`, is accepted as input. Operators are
+  grouped by catalog index image; packages with `main: false` are dependencies
+  and are not planned.
+- `catalog_fetch.py` pulls the catalogs. For each catalog image and each OCP
+  release on the path the tag is moved to that release and only the installed
+  packages are extracted (`oc image extract --path /configs/<pkg>/`). The
+  `olm.channel` objects are written as `data-v<major>.<minor>.json`, the format
+  previously supplied by hand. Credentials come from `--authfile` or the
+  cluster pull secret. Pulls run in parallel (`--jobs`) and are reused on later
+  runs unless `--refresh` is given.
+- `mirror_plan.py` checks each operator against the target catalog first. One
+  that cannot be upgraded from there is reported CRITICAL, and the intermediate
+  catalog that bridges the gap (for example 4.19 on a 4.18 to 4.20 EUS path) is
+  identified so it can be mirrored and deployed too.
+- An oc-mirror v2 `ImageSetConfiguration` (`imageset-config.yaml`) listing,
+  per catalog version, the packages, channels and version ranges to mirror.
+  Dependencies are included at their channel head.
+- A *Catalog mirroring* table on the summary page, a `mirror` object in the plan
+  JSON, and exit code 4 when an intermediate catalog is needed.
+- An installed bundle whose `max_ocp_version` is below the target is reported.
+
+### Removed
+- The flat operator-list input (`name`/`channel`/`version` per operator). The
+  catalog mirror check is the only input format.
+- Catalog auto-discovery (`OCP_CATALOG_DIR`, conventional directory names, the
+  parent walk and recursive scan). Catalogs are pulled, or read from an explicit
+  `--catalog-dir`.
+- `plan_cluster()` in `ocp_planner.py`, the flat-input entry point.
+
+### Changed
+- `skips` is now an upgrade edge alongside `replaces` and `skipRange`.
+- The example input is now `examples/catalog_mirror_check.json`, replacing
+  `examples/cluster.json` and `cluster_operators_installed.json`.

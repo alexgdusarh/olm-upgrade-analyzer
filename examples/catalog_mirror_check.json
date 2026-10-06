@@ -1,0 +1,50 @@
+{
+    "cluster": {
+        "channel": "eus",
+        "current": "4.18.28",
+        "ocp_path": [
+            "4.18",
+            "4.19",
+            "4.20"
+        ],
+        "target": "4.20"
+    },
+    "operators": [
+        {
+            "packages": [
+                {
+                    "channel": "v5",
+                    "main": true,
+                    "max_ocp_version": "",
+                    "name": "grafana-operator",
+                    "required_by": [],
+                    "version": "5.24.0"
+                }
+            ],
+            "pull_image": "registry.redhat.io/redhat/community-operator-index:v4.18"
+        },
+        {
+            "packages": [
+                {
+                    "channel": "fast",
+                    "main": false,
+                    "max_ocp_version": "",
+                    "name": "devworkspace-operator",
+                    "required_by": [
+                        "web-terminal"
+                    ],
+                    "version": "0.43.0"
+                },
+                {
+                    "channel": "stable-v1",
+                    "main": true,
+                    "max_ocp_version": "",
+                    "name": "openshift-cert-manager-operator",
+                    "required_by": [],
+                    "version": "1.19.2"
+                }
+            ],
+            "pull_image": "registry.redhat.io/redhat/redhat-operator-index:v4.18"
+        }
+    ]
+}

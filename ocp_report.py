@@ -426,8 +426,48 @@ landed there.</div>
   {rows}
 </table>"""
 
+    body += _mirror_html(plan['mirror'])
+
     out = Path(output_dir) / 'html'
     out.mkdir(parents=True, exist_ok=True)
     path = out / 'index.html'
     path.write_text(_page("Cluster Operator Upgrade Plan", body))
     return str(path)
+
+
+MIRROR_CLASS = {'ok': 'ok', 'critical': 'bad', 'unresolved': 'bad'}
+
+
+def _mirror_html(mirror: Dict) -> str:
+    """Which catalogs must be mirrored, and why, for a disconnected cluster."""
+    catalogs = "".join(
+        f'<tr><td class="label">OCP {ocp}</td><td>'
+        + "<br>".join(f"<code>{img}</code>" for img in images) + '</td></tr>'
+        for ocp, images in mirror['catalogs_to_mirror'].items())
+
+    rows = ""
+    for chk in mirror['operators']:
+        status = chk['status']
+        steps = "<br>".join(
+            f"{s['catalog']}: {s['to_channel']} <strong>{s['to_version']}"
+            f"</strong> ({s['via']})" for s in chk['steps']) or '&mdash;'
+        notes = "".join(f"<div class=\"cell-sub\">{n}</div>"
+                        for n in chk['notes'])
+        rows += (f'<tr><td>{chk["operator"]}</td>'
+                 f'<td><span class="badge {MIRROR_CLASS.get(status, "warn")}">'
+                 f'{status.upper()}</span>{notes}</td>'
+                 f'<td>{", ".join(chk["catalogs"]) or "&mdash;"}</td>'
+                 f'<td>{steps}</td></tr>')
+
+    return f"""
+<h2 style="margin-top:30px">Catalog mirroring</h2>
+<div class="legend">Each operator is first checked against the target catalog
+alone, since that is usually the only catalog mirrored. <em>CRITICAL</em> means
+it cannot be upgraded from there, and the listed intermediate catalog must be
+mirrored and deployed too. The oc-mirror configuration is written to
+<code>{mirror.get('imageset_config', '')}</code>.</div>
+<table class="info">{catalogs}</table>
+<table class="ops">
+  <tr><th>Operator</th><th>Status</th><th>Catalogs needed</th><th>Upgrades</th></tr>
+  {rows}
+</table>"""
