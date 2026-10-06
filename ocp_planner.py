@@ -210,9 +210,13 @@ def build_ocp_path(current: str, target: str, channel: str) -> List[str]:
 # Catalog loading
 # ---------------------------------------------------------------------------
 
-def load_catalog(path: str) -> Dict[str, Dict[str, Dict[str, Dict]]]:
+def load_catalog(path: str, allow_empty: bool = False
+                 ) -> Dict[str, Dict[str, Dict[str, Dict]]]:
     """
     Parse an OLM catalog into {package: {channel: {version: entry}}}.
+
+    An empty file is an error unless allow_empty is set, as it is for a
+    catalog pulled for packages the image turned out not to carry.
 
     Presence is modelled as an explicit version set rather than a min/max floor,
     because channels are not always contiguous - some releases drop a version
@@ -220,6 +224,8 @@ def load_catalog(path: str) -> Dict[str, Dict[str, Dict[str, Dict]]]:
     """
     content = Path(path).read_text()
     if not content.strip():
+        if allow_empty:
+            return {}
         raise ValueError(f"Catalog is empty: {path}")
 
     blocks = content.strip().split('}\n{')
@@ -372,7 +378,8 @@ def find_catalogs(catalog_dir: str) -> Dict[str, str]:
     return found
 
 
-def load_catalogs(catalog_dir: str, ocp_path: List[str]) -> Dict[str, Dict]:
+def load_catalogs(catalog_dir: str, ocp_path: List[str],
+                  allow_empty: bool = False) -> Dict[str, Dict]:
     catalogs = {}
     missing = []
     for ocp in ocp_path:
@@ -385,7 +392,7 @@ def load_catalogs(catalog_dir: str, ocp_path: List[str]) -> Dict[str, Dict]:
         if path is None:
             missing.append(catalog_filename(ocp))
             continue
-        catalogs[ocp] = load_catalog(str(path))
+        catalogs[ocp] = load_catalog(str(path), allow_empty)
     if missing:
         available = sorted(find_catalogs(catalog_dir),
                            key=lambda v: parse_ocp(v))
@@ -632,6 +639,11 @@ def _reachable_from(catalog: Dict, pkg: str, chan: str, ver: str) -> List[Tuple[
             replaces = extract_version_from_name(entry.get('replaces', ''))
             if replaces and replaces == ver:
                 out.append((to_chan, to_ver, 'replaces'))
+                continue
+            skips = {extract_version_from_name(s)
+                     for s in entry.get('skips') or []}
+            if ver in skips:
+                out.append((to_chan, to_ver, 'skips'))
     return out
 
 

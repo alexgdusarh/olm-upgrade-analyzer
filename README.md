@@ -22,13 +22,91 @@ pip install -r requirements.txt
 
 Plans every operator around an OCP cluster upgrade, using one catalog per OCP
 release. Writes one HTML report per operator plus a cluster summary, and prints
-the plan as JSON.
+the plan as JSON. Given the health check's catalog mirror check, it also pulls
+the catalogs itself, works out which catalogs a disconnected cluster has to
+mirror, and writes the oc-mirror configuration for them.
 
 ```bash
-python ocp_upgrade_planner.py -i cluster.json
+# catalogs pulled from the cluster's catalog images at run time
+python ocp_upgrade_planner.py -i outputs/catalog_mirror_check.json
+
+# catalogs already on disk
+python ocp_upgrade_planner.py -i cluster.json --catalog-dir ./catalogs
 ```
 
-## Input
+## Input: catalog mirror check
+
+`outputs/catalog_mirror_check.json`, written by
+[ocp_preupgrade_health_check](../ocp_preupgrade_health_check) (task 89b).
+Operators are grouped by the catalog index image they were installed from.
+
+```json
+{
+  "cluster": { "current": "4.18.28", "target": "4.20", "channel": "eus",
+               "ocp_path": ["4.18", "4.19", "4.20"] },
+  "operators": [
+    { "pull_image": "registry.redhat.io/redhat/redhat-operator-index:v4.18",
+      "packages": [
+        { "name": "openshift-cert-manager-operator", "channel": "stable-v1",
+          "version": "1.19.2", "max_ocp_version": "", "main": true,
+          "required_by": [] },
+        { "name": "devworkspace-operator", "channel": "fast",
+          "version": "0.43.0", "max_ocp_version": "", "main": false,
+          "required_by": ["web-terminal"] }
+      ] }
+  ]
+}
+```
+
+| Field | Notes |
+|-------|-------|
+| `cluster.ocp_path` | Optional. When given it must match the path derived from `current`, `target` and `channel` |
+| `pull_image` | Catalog index image, at its mirror location if the cluster redirects it. Must carry a `:v<major>.<minor>` tag |
+| `main` | `false` marks a dependency installed by another operator. It is not planned, but is kept in the oc-mirror configuration |
+| `max_ocp_version` | The installed bundle's `olm.maxOpenShiftVersion`. A value below the target is reported |
+
+### Pulling the catalogs
+
+For each `pull_image` and each release on the path, the tag is moved to that
+release (`:v4.18` becomes `:v4.19`, `:v4.20`) and only the installed packages
+are pulled:
+
+```bash
+oc image extract <image>:v4.19 --filter-by-os=linux/amd64 -a <authfile> \
+    --path /configs/<package>/:<dir> ...
+```
+
+The `olm.channel` objects are kept and written as
+`<fetch-dir>/<image>/data-v4.19.json`, the same format as a hand-supplied
+catalog. Each package's default channel is recorded beside it in
+`packages-v4.19.json`. A later run reuses a pulled catalog when it already
+covers every package; `--refresh` pulls again.
+
+Registry credentials come from `--authfile`, or else from the cluster pull
+secret (`oc extract secret/pull-secret -n openshift-config`), which needs a
+logged-in `oc`.
+
+### Catalog mirroring
+
+Customers usually mirror only their own operators, and only from the target
+release's catalog. Each operator is therefore checked against the **target
+catalog first**, using the same replaces, skips and skipRange edges as the
+planner. If the installed (channel, version) can be upgraded from there, the
+target catalog is enough.
+
+If it cannot, the operator is reported **CRITICAL** and the intermediate
+catalog that bridges the gap is found: one extra catalog first, closest to the
+target first (4.19 on a 4.18 to 4.20 EUS path, then 4.18), then two. That
+catalog must be mirrored and deployed as well, and the operator upgraded from
+it before the target catalog takes over.
+
+`imageset-config.yaml` (oc-mirror v2) lists, per catalog version, every
+package, channel and `minVersion`/`maxVersion` range the operators pass
+through. Dependencies (`main: false`) are added at the head of their channel.
+Where the package's default channel is not one of the mirrored channels,
+`defaultChannel` is set, as oc-mirror requires.
+
+## Input: operator list
 
 JSON, from a file (`-i`) or stdin.
 
@@ -88,8 +166,15 @@ A mismatch is rejected rather than guessed:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-i`, `--input` | stdin | Input JSON file |
-| `--catalog-dir` | auto | Directory holding the catalogs. Falls back to `OCP_CATALOG_DIR`, then discovery |
-| `-d`, `--output-dir` | `.` | Where `html/` is written |
+| `--catalog-dir` | auto | Directory holding the catalogs. Falls back to `OCP_CATALOG_DIR`, then discovery. With a mirror check input, skips pulling and uses this directory for every catalog image |
+| `--fetch-dir` | `<output-dir>/catalogs` | Where pulled catalogs are kept |
+| `--refresh` | off | Pull catalogs again even if a previous pull covers the packages |
+| `-a`, `--authfile` | pull secret | Registry credentials for pulling catalogs |
+| `--filter-by-os` | `linux/amd64` | Platform of the catalog image to pull |
+| `--jobs` | `4` | Catalog pulls to run at once |
+| `--insecure-registry` | off | Pull catalogs over HTTP or with an untrusted certificate |
+| `-d`, `--output-dir` | `.` | Where `html/` and `imageset-config.yaml` are written |
+| `--imageset-out` | `<output-dir>/imageset-config.yaml` | oc-mirror ImageSetConfiguration path |
 | `-j`, `--json-out` | — | Also write the plan JSON to this file |
 | `-q`, `--quiet` | off | Suppress progress output on stderr |
 
@@ -173,6 +258,33 @@ Abbreviated — each object carries more keys than shown:
 }
 ```
 
+With a catalog mirror check input the plan also carries `mirror`, the summary
+page gains a *Catalog mirroring* table, and `imageset-config.yaml` is written:
+
+```json
+"mirror": {
+  "verdict": "critical",
+  "critical_operators": ["example-operator"],
+  "catalogs_to_mirror": {
+    "4.19": ["registry.redhat.io/redhat/redhat-operator-index:v4.19"],
+    "4.20": ["registry.redhat.io/redhat/redhat-operator-index:v4.20"]
+  },
+  "operators": [
+    { "operator": "example-operator", "status": "critical",
+      "catalogs": ["4.19", "4.20"],
+      "steps": [ { "catalog": "4.19", "to_channel": "stable",
+                   "to_version": "2.1.0", "via": "skipRange" },
+                 { "catalog": "4.20", "to_channel": "stable",
+                   "to_version": "3.0.4", "via": "replaces" } ] }
+  ],
+  "imageset_config": "./imageset-config.yaml"
+}
+```
+
+`status` is `ok`, `critical` (an intermediate catalog is needed, or the package
+is gone from the target catalog) or `unresolved` (no combination of catalogs
+works, or the operator was not found).
+
 ### Exit codes
 
 | Code | Meaning |
@@ -181,6 +293,7 @@ Abbreviated — each object carries more keys than shown:
 | 1 | Usage or input error |
 | 2 | Manual review required |
 | 3 | An operator blocks the cluster upgrade |
+| 4 | An operator needs an intermediate catalog mirrored as well as the target catalog |
 
 ### Verdicts
 
@@ -294,6 +407,8 @@ LICENSE                   Apache License 2.0
 ocp_upgrade_planner.py    cluster planner CLI
 ocp_planner.py            planning engine
 ocp_report.py             HTML reports
+catalog_fetch.py          pulls catalogs from catalog index images
+mirror_plan.py            catalog mirroring check and oc-mirror configuration
 operator_interactive.py   single-catalog analyzer
 examples/cluster.json     input template
 requirements.txt
