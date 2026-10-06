@@ -178,7 +178,9 @@ catalogs a disconnected cluster must mirror.
   target column then "no action, upgraded on" it; else the upgrade to a newer
   version of its channel; else a warning, also in the operator's
   notes, as when no bundle metadata is available or the operator is not found.
-  The result is in the plan JSON as `columns`. An empty input
+  A final pass over each row keeps an upgrade shown in several columns only in
+  the lowest one; the higher become "no action, upgraded on" it. The rows are
+  in the plan JSON as `matrix`, the checks behind them as `columns`. An empty input
   `max_ocp_version` falls back to the installed bundle's value in the pulled
   catalog.
 - When several channels carry the latest version, the subscribed channel is

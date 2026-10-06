@@ -274,9 +274,13 @@ on by then, in this order:
    when no bundle metadata is available (hand-supplied catalogs) or the
    operator is not found in its catalog image
 
+A final pass over each finished row removes duplicates: an upgrade to the same
+channel and version shown in more than one column is kept in the lowest one,
+and the higher ones become "✓ no action, upgraded on" it.
+
 When the input has no `max_ocp_version`, the installed bundle's value from the
-pulled catalog is used. The plan JSON carries the result per operator as
-`columns`; the per-operator report has one row group per catalog the operator is
+pulled catalog is used. The plan JSON carries each row as `matrix`, and the
+checks behind it as `columns`; the per-operator report has one row group per catalog the operator is
 upgraded from — info table, graph, steps.
 
 A shared catalog only grows: a cluster needing packages it lacks pulls it

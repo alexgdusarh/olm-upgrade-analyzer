@@ -86,6 +86,28 @@
           "state": "present"
         }
       },
+      "matrix": [
+        {
+          "kind": "present",
+          "channel": "v5",
+          "version": "5.24.0",
+          "newer": null,
+          "max_ocp_version": null,
+          "ocp": "4.18"
+        },
+        {
+          "kind": "present",
+          "channel": "v5",
+          "version": "5.24.0",
+          "newer": null,
+          "max_ocp_version": null,
+          "ocp": "4.19"
+        },
+        {
+          "kind": "no_action",
+          "ocp": "4.20"
+        }
+      ],
       "input_name": "grafana-operator",
       "catalog_image": "registry.redhat.io/redhat/community-operator-index:v4.18",
       "html": "output/ocp5/html/grafana-operator/index.html"
@@ -187,6 +209,29 @@
           "hops": 2
         }
       },
+      "matrix": [
+        {
+          "kind": "present",
+          "channel": "stable-v1",
+          "version": "1.19.2",
+          "newer": null,
+          "max_ocp_version": null,
+          "ocp": "4.18"
+        },
+        {
+          "kind": "upgrade",
+          "channel": "stable-v1",
+          "version": "1.20.1",
+          "hops": 2,
+          "replaces_missing": "1.19.2",
+          "ocp": "4.19"
+        },
+        {
+          "kind": "no_action",
+          "upgraded_on": "4.19",
+          "ocp": "4.20"
+        }
+      ],
       "input_name": "openshift-cert-manager-operator",
       "catalog_image": "registry.redhat.io/redhat/redhat-operator-index:v4.18",
       "html": "output/ocp5/html/openshift-cert-manager-operator/index.html"

@@ -554,6 +554,66 @@ def column_checks(catalogs: Dict[str, Dict], ocp_path: List[str],
     return columns
 
 
+def build_matrix(ocp_path: List[str], result: Dict) -> List[Dict]:
+    """
+    The operator's row of the summary matrix, one cell per catalog, oldest
+    first, from its phases and column_checks.
+
+    Cell kinds: upgrade (a planned upgrade), newer (a newer version of the
+    channel, shown as an upgrade), no_action (optionally upgraded_on an earlier
+    release), max, present, missing, unknown and not_found.
+
+    A final pass removes duplicates: an upgrade to a (channel, version) the
+    row already reaches in a lower column is kept there, and the higher column
+    becomes no_action, upgraded_on the lower one. The target phase is marked
+    done_on that release to match.
+    """
+    by_catalog = {ph['on_ocp']: ph for ph in result['phases']}
+    columns = result.get('columns') or {}
+    cells = []
+    for ocp in ocp_path:
+        ph, col = by_catalog.get(ocp), columns.get(ocp)
+        if ph and ph.get('done_on'):
+            cell = {'kind': 'no_action', 'upgraded_on': ph['done_on']}
+        elif ph and ph['status'] == 'no_action':
+            cell = {'kind': 'no_action'}
+        elif ph:
+            cell = {'kind': 'upgrade', 'channel': ph['to']['channel'],
+                    'version': ph['to']['version'], 'hops': ph['hops']}
+        elif col and col['state'] == 'upgrade':
+            cell = {'kind': 'upgrade', 'channel': col['to_channel'],
+                    'version': col['to_version'], 'hops': col['hops'],
+                    'replaces_missing': col['version']}
+        elif col and col['state'] == 'newer':
+            cell = {'kind': 'newer', 'channel': col['channel'],
+                    'version': col['newer'], 'from_version': col['version']}
+        elif col:
+            cell = {'kind': col['state'], 'channel': col['channel'],
+                    'version': col['version'], 'newer': col['newer'],
+                    'max_ocp_version': col['max_ocp_version']}
+        else:
+            cell = {'kind': 'not_found'}
+        cell['ocp'] = ocp
+        cells.append(cell)
+
+    reached = {}  # (channel, version) -> lowest release showing it
+    for cell in cells:
+        if cell['kind'] not in ('upgrade', 'newer'):
+            continue
+        key = (cell['channel'], cell['version'])
+        if key not in reached:
+            reached[key] = cell['ocp']
+            continue
+        ocp, lower = cell['ocp'], reached[key]
+        cell.clear()
+        cell.update(kind='no_action', upgraded_on=lower, ocp=ocp)
+        ph = by_catalog.get(ocp)
+        if ph and not ph.get('done_on'):
+            ph['done_on'] = lower
+    result['matrix'] = cells
+    return cells
+
+
 def mirror_sets(result: Dict) -> Dict[str, Dict[str, List[str]]]:
     """
     {ocp: {channel: [versions]}} that must be mirrored for one operator.

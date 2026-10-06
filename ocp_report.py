@@ -372,25 +372,8 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
     rows = ""
     for op in plan['operators']:
         v = op['verdict']
-        by_catalog = {ph['on_ocp']: ph for ph in op['phases']}
-        columns = op.get('columns') or {}
-        cells = ""
-        for ocp in ocp_path:
-            ph = by_catalog.get(ocp)
-            if not ph:
-                cells += _no_phase_cell(columns.get(ocp), ocp_path)
-            elif ph.get('done_on'):
-                cells += ('<td><span class="cell-ok">&#10003; no action</span>'
-                          f'<div class="cell-sub">upgraded on {ph["done_on"]}'
-                          '</div></td>')
-            elif ph['status'] == 'no_action':
-                cells += '<td><span class="cell-ok">&#10003; no action</span></td>'
-            else:
-                what = (f"{ph['hops']} upgrade" + ('s' if ph['hops'] != 1 else '')
-                        if ph['hops'] else 'channel switch only')
-                cells += (f'<td>{ph["to"]["channel"]}<br><strong>'
-                          f'{ph["to"]["version"]}</strong>'
-                          f'<div class="cell-sub">{what}</div></td>')
+        cells = "".join(_matrix_cell(c, ocp_path)
+                        for c in op.get('matrix') or [])
 
         inp = op['input']
         rows += (f'<tr><td><a href="{op["operator"]}/index.html">'
@@ -443,44 +426,46 @@ must be mirrored and deployed too.</div>
     return str(path)
 
 
-def _no_phase_cell(col: Optional[Dict], ocp_path: List[str]) -> str:
-    """
-    A catalog column the operator is not upgraded from, as validated by
-    column_checks: the declared maxOpenShiftVersion, else whether this
-    catalog ships the bundle or a newer one of its channel, else a warning.
-    """
-    if not col:
-        # the operator could not be identified in its catalog image
-        return ('<td class="cell-warn">&#9888; not found'
-                '<div class="cell-sub">see the operator notes</div></td>')
-    state = col['state']
-    if state == 'max':
-        top = col['max_ocp_version']
+def _matrix_cell(cell: Dict, ocp_path: List[str]) -> str:
+    """One cell of the summary matrix, as built by build_matrix."""
+    kind = cell['kind']
+    if kind == 'upgrade':
+        hops = cell['hops']
+        what = (f"{hops} upgrade" + ('s' if hops != 1 else '')
+                if hops else 'channel switch only')
+        if cell.get('replaces_missing'):
+            what += (f" on this release; {cell['replaces_missing']} not in "
+                     f"this catalog")
+        return (f'<td>{cell["channel"]}<br><strong>{cell["version"]}</strong>'
+                f'<div class="cell-sub">{what}</div></td>')
+    if kind == 'newer':
+        return (f'<td>{cell["channel"]}<br><strong>{cell["version"]}</strong>'
+                f'<div class="cell-sub">upgrade available; '
+                f'{cell["from_version"]} not in this catalog</div></td>')
+    if kind == 'no_action':
+        when = (f'<div class="cell-sub">upgraded on {cell["upgraded_on"]}'
+                f'</div>' if cell.get('upgraded_on') else '')
+        return f'<td><span class="cell-ok">&#10003; no action</span>{when}</td>'
+    if kind == 'max':
+        top = cell['max_ocp_version']
         return (f'<td class="cell-meta">metadata maxOpenShiftVersion {top}'
                 f'<div class="cell-sub">supports {ocp_path[0]} to {top}'
                 f'</div></td>')
-    if state == 'present':
-        newer = (f'<div class="cell-sub">{col["newer"]} available</div>'
-                 if col['newer'] else '')
+    if kind == 'present':
+        newer = (f'<div class="cell-sub">{cell["newer"]} available</div>'
+                 if cell.get('newer') else '')
         return ('<td><span class="cell-ok">&#10003; no action</span>'
-                f'<div class="cell-sub">{col["channel"]} {col["version"]} '
+                f'<div class="cell-sub">{cell["channel"]} {cell["version"]} '
                 f'in this catalog</div>{newer}</td>')
-    if state == 'upgrade':
-        hops = col['hops']
-        what = f"{hops} upgrade" + ('s' if hops != 1 else '')
-        return (f'<td>{col["to_channel"]}<br><strong>{col["to_version"]}'
-                f'</strong><div class="cell-sub">{what} on this release; '
-                f'{col["version"]} not in this catalog</div></td>')
-    if state == 'newer':
-        return (f'<td>{col["channel"]}<br><strong>{col["newer"]}</strong>'
-                f'<div class="cell-sub">upgrade available; {col["version"]} '
-                f'not in this catalog</div></td>')
-    if state == 'missing':
+    if kind == 'missing':
         return ('<td class="cell-warn">&#9888; not in this catalog'
                 '<div class="cell-sub">no maxOpenShiftVersion in metadata'
                 '</div></td>')
-    return ('<td class="cell-warn">&#9888; bundle metadata not available'
-            '<div class="cell-sub">supported releases unknown</div></td>')
+    if kind == 'unknown':
+        return ('<td class="cell-warn">&#9888; bundle metadata not available'
+                '<div class="cell-sub">supported releases unknown</div></td>')
+    return ('<td class="cell-warn">&#9888; not found'
+            '<div class="cell-sub">see the operator notes</div></td>')
 
 
 def _mirror_html(plan: Dict) -> str:

@@ -60,6 +60,7 @@ from mirror_plan import (
     REVIEW,
     UPGRADE,
     build_imageset,
+    build_matrix,
     column_checks,
     declared_max_ocp,
     mirror_sets,
@@ -225,6 +226,7 @@ def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
                     bundle_max, ocp_path, res['operator'], ph['to']['version'])
             if res['phases']:
                 column_checks(catalogs, ocp_path, res)
+            build_matrix(ocp_path, res)
             res['input_name'] = op['name']
             res['catalog_image'] = group['pull_image']
             group_results.append(res)
