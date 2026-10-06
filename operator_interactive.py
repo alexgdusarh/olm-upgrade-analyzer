@@ -23,6 +23,8 @@ from packaging import version as pkg_version
 import networkx as nx
 import matplotlib
 matplotlib.use('Agg')
+# Same graph, same SVG: fixed element ids, so reruns do not churn reports.
+matplotlib.rcParams['svg.hashsalt'] = 'olm-upgrade-analyzer'
 import matplotlib.pyplot as plt
 from io import StringIO
 
@@ -489,7 +491,8 @@ def _render_svg(G, node_colors_map, operator_name, start_ver, upgrade_path) -> s
     plt.tight_layout()
 
     buf = StringIO()
-    fig.savefig(buf, format='svg', bbox_inches='tight')
+    fig.savefig(buf, format='svg', bbox_inches='tight',
+                metadata={'Date': None})
     plt.close(fig)
 
     svg = buf.getvalue()

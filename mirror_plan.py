@@ -405,6 +405,7 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
             f", so the operator stays valid through the whole upgrade. The "
             f"{current} and {target} mirrors must carry it.")
         if end[1] != b_tup[1]:
+            result['latest'] = {'channel': end[0], 'version': end[1]}
             result['notes'].append(
                 f"{end[1]} (channel {end[0]}) is available in the {target} "
                 f"catalog once the cluster is there; upgrading is optional.")
@@ -424,6 +425,7 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
         # latest is reported, and only the installed bundle is mirrored.
         verdict = NO_ACTION
         if end[1] != ver:
+            result['latest'] = {'channel': end[0], 'version': end[1]}
             result['notes'].append(
                 f"{end[1]} (channel {end[0]}) is available in the {target} "
                 f"catalog; upgrading is optional.")
@@ -577,6 +579,9 @@ def build_matrix(ocp_path: List[str], result: Dict) -> List[Dict]:
             cell = {'kind': 'no_action', 'upgraded_on': ph['done_on']}
         elif ph and ph['status'] == 'no_action':
             cell = {'kind': 'no_action'}
+            if ocp == ocp_path[-1] and result.get('latest'):
+                cell['available'] = dict(result['latest'],
+                                         channel_changes=result['latest']['channel'] != ph['to']['channel'])
         elif ph:
             cell = {'kind': 'upgrade', 'channel': ph['to']['channel'],
                     'version': ph['to']['version'], 'hops': ph['hops']}
