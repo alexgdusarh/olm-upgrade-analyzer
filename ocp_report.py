@@ -204,7 +204,8 @@ table.ops th { vertical-align:top; }
 .cell-sub { font-size:11.5px; color:#777; margin-top:3px; }
 .cell-ok { color:#4caf50; } .cell-bad { color:#e05252; }
 .cell-none { color:#bbb; text-align:center; }
-.cell-meta { color:#8a6100; font-size:12.5px; }
+.cell-meta { color:#555; font-size:12.5px; }
+.cell-warn { color:#8a6100; background:#fff8e1; font-size:12.5px; }
 .cell-rule { border:none; border-top:1px dashed #ddd; margin:8px 0; }
 .legend { font-size:13px; color:#666; background:#f7f7fa; border-left:3px solid #ccd;
           padding:11px 14px; border-radius:4px; margin-bottom:14px; }
@@ -376,7 +377,8 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
             if ph and ph['to']['version'] != ph['from']['version']:
                 top = ph['to'].get('max_ocp_version')
             if not ph:
-                cells += _no_phase_cell(top, ocp_path)
+                cells += _no_phase_cell(top, ocp_path,
+                                        op.get('bundle_metadata', False))
             elif ph['status'] == 'no_action':
                 cells += '<td><span class="cell-ok">&#10003; no action</span></td>'
             else:
@@ -437,14 +439,20 @@ must be mirrored and deployed too.</div>
     return str(path)
 
 
-def _no_phase_cell(top: Optional[str], ocp_path: List[str]) -> str:
+def _no_phase_cell(top: Optional[str], ocp_path: List[str],
+                   metadata: bool) -> str:
     """
-    A catalog column the operator is not upgraded from. When the bundle it is
-    on by then declares olm.maxOpenShiftVersion, say which releases that
-    supports rather than leaving a bare dash.
+    A catalog column the operator is not upgraded from: what the metadata of
+    the bundle it is on by then says about the releases it supports. When the
+    metadata does not say, it is flagged as a warning.
     """
+    if not top and metadata:
+        return ('<td class="cell-warn">&#9888; no maxOpenShiftVersion in '
+                'metadata<div class="cell-sub">supported releases not '
+                'declared</div></td>')
     if not top:
-        return '<td class="cell-none">&mdash;</td>'
+        return ('<td class="cell-warn">&#9888; bundle metadata not available'
+                '<div class="cell-sub">supported releases unknown</div></td>')
     return (f'<td class="cell-meta">metadata maxOpenShiftVersion {top}'
             f'<div class="cell-sub">supports {ocp_path[0]} to {top}</div></td>')
 

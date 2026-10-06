@@ -64,7 +64,10 @@
         }
       ],
       "steps": [],
-      "notes": [],
+      "notes": [
+        "Warning: the installed 5.24.0 bundle declares no olm.maxOpenShiftVersion, so its support for 4.19, 4.20 is not stated in the metadata."
+      ],
+      "bundle_metadata": true,
       "goal": {
         "channel": "v5",
         "version": "5.24.0"
@@ -142,8 +145,10 @@
         }
       ],
       "notes": [
+        "Warning: the installed 1.19.2 bundle declares no olm.maxOpenShiftVersion, so its support for 4.19, 4.20 is not stated in the metadata.",
         "1.19.2 (channel stable-v1) is not in the 4.20 catalog, which upgrades it to 1.20.1 (channel stable-v1.20)."
       ],
+      "bundle_metadata": true,
       "goal": {
         "channel": "stable-v1.20",
         "version": "1.20.1"

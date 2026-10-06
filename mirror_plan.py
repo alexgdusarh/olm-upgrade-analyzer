@@ -317,6 +317,27 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
     if ver != result['input']['version']:
         result['input']['resolved_version'] = ver
     result['version_pinned'] = is_version_pinned(catalogs, pkg)
+    # Whether the pulled catalogs carry this package's bundle metadata, so
+    # that a missing maxOpenShiftVersion means "none declared", not "unknown".
+    result['bundle_metadata'] = any(
+        pkg in (bundle_max or {}).get(o, {}) for o in ocp_path)
+    if not result['max_ocp_version']:
+        declared = declared_max_ocp(bundle_max, ocp_path, pkg, ver)
+        if declared:
+            result['max_ocp_version'] = declared
+            result['notes'].append(
+                f"The input has no max_ocp_version; the {ver} bundle in the "
+                f"catalog declares olm.maxOpenShiftVersion {declared}.")
+        elif result['bundle_metadata']:
+            result['notes'].append(
+                f"Warning: the installed {ver} bundle declares no "
+                f"olm.maxOpenShiftVersion, so its support for "
+                f"{', '.join(ocp_path[1:])} is not stated in the metadata.")
+        else:
+            result['notes'].append(
+                f"Warning: no bundle metadata is available for '{pkg}', so "
+                f"the releases the installed {ver} bundle supports are "
+                f"unknown. Pull the catalogs instead of --catalog-dir.")
 
     too_old = _max_ocp_below(result['max_ocp_version'], target)
     if too_old:
