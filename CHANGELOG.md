@@ -143,5 +143,5 @@ catalogs a disconnected cluster must mirror are worked out.
 
 ### Changed
 - `skips` is now an upgrade edge alongside `replaces` and `skipRange`.
-- The sample input is now `catalog_mirror_check.json`, replacing
-  `cluster_operators_installed.json`.
+- The example input is now `examples/catalog_mirror_check.json`, replacing
+  `examples/cluster.json` and `cluster_operators_installed.json`.

@@ -28,7 +28,7 @@ mirror, and writes the oc-mirror configuration for them.
 
 ```bash
 # catalogs pulled from the cluster's catalog images at run time
-python ocp_upgrade_planner.py -i outputs/catalog_mirror_check.json
+python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json
 
 # catalogs already on disk
 python ocp_upgrade_planner.py -i cluster.json --catalog-dir ./catalogs
@@ -37,7 +37,8 @@ python ocp_upgrade_planner.py -i cluster.json --catalog-dir ./catalogs
 ## Input: catalog mirror check
 
 `outputs/catalog_mirror_check.json`, written by
-[ocp_preupgrade_health_check](../ocp_preupgrade_health_check) (task 89b).
+[ocp_preupgrade_health_check](../ocp_preupgrade_health_check) (task 89b);
+`examples/catalog_mirror_check.json` is a template.
 Operators are grouped by the catalog index image they were installed from.
 
 ```json
@@ -410,7 +411,7 @@ ocp_report.py             HTML reports
 catalog_fetch.py          pulls catalogs from catalog index images
 mirror_plan.py            catalog mirroring check and oc-mirror configuration
 operator_interactive.py   single-catalog analyzer
-examples/cluster.json     input template
+examples/catalog_mirror_check.json  input template
 requirements.txt
 ```
 

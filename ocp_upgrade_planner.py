@@ -6,7 +6,7 @@ Reads a cluster + operator list as JSON, plans the operator upgrades required
 around the cluster upgrade, and writes one HTML report per operator plus a
 cluster summary. Machine-readable JSON goes to stdout.
 
-    python ocp_upgrade_planner.py -i catalog_mirror_check.json
+    python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json
     python ocp_upgrade_planner.py -i cluster.json --catalog-dir ./catalogs
 
 Two input shapes are accepted.
