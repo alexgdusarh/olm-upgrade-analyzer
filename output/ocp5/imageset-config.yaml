@@ -15,9 +15,6 @@ mirror:
       channels:
       - name: stable-v1
         minVersion: "1.20.0"
-        maxVersion: "1.20.0"
-      - name: stable-v1.20
-        minVersion: "1.20.1"
         maxVersion: "1.20.1"
     # dependency of web-terminal; channel head
     - name: devworkspace-operator

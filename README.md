@@ -90,8 +90,9 @@ oc image extract <image>:v4.19 --filter-by-os=linux/amd64 -a <authfile> \
 The `olm.channel` objects are kept and written as
 `<fetch-dir>/<image>/data-v4.19.json`, the same format as a hand-supplied
 catalog. Each package's default channel is recorded beside it in
-`packages-v4.19.json`. A later run reuses a pulled catalog when it already
-covers every package; `--refresh` pulls again.
+`packages-v4.19.json`, with each bundle's `olm.maxOpenShiftVersion`. A later
+run reuses a pulled catalog when it already covers every package; `--refresh`
+pulls again.
 
 Registry credentials come from `--authfile`, or else from the cluster pull
 secret (`oc extract secret/pull-secret -n openshift-config`), which needs a
@@ -115,11 +116,31 @@ forwards hop by hop:
    That catalog must be mirrored and deployed as well, and the operator
    upgraded from it before the target catalog takes over. Reported CRITICAL.
 
+**An installed bundle whose `max_ocp_version` is below the target** cannot stay
+through the jump. When the target catalog covers it, a bundle valid on every
+release of the path is looked for: present in every catalog on it, with its own
+`olm.maxOpenShiftVersion` (recorded when the catalogs are pulled) reaching the
+target, and reachable from the installed version with the current catalog. The
+operator is upgraded to it **before the cluster upgrade**, and need not move
+during the jump:
+
+```
+loki-operator, installed stable-6.2 / 6.2.3, maxOpenShiftVersion 4.19
+
+  stable-6.4 6.4.6 is in the 4.18, 4.19 and 4.20 catalogs, max 4.21
+  -> operator_upgrade_required:
+     from 4.18, before the upgrade: stable-6.4 6.4.6
+     from 4.20, optional afterwards: stable-6.6 6.6.1
+```
+
+Without such a bundle it is upgraded from the target catalog while the cluster
+is still on a release the installed bundle supports.
+
 | Verdict | When |
 |---------|------|
 | `no_action_required` | The target catalog still ships the installed bundle, and `max_ocp_version` reaches the target. A newer version is noted as optional |
 | `operator_upgrade_required` | Covered by the target catalog, but the installed channel/version is gone from it, or `max_ocp_version` is below the target. The upgrade comes from the target catalog |
-| `intermediate_catalog_required` | **CRITICAL.** The target catalog does not cover the installed version; the intermediate catalog is named |
+| `intermediate_catalog_required` | **CRITICAL.** The target catalog does not cover the installed version, or the operator is release-pinned on an EUS path; the intermediate catalog is named |
 | `blocked` | The package is gone from the target catalog |
 | `manual_review` | The operator is not in its catalog image, or no combination of catalogs covers it |
 
@@ -138,9 +159,20 @@ advanced-cluster-management, installed release-2.12 / 2.12.8
      from 4.20: release-2.15 2.15.0 -> release-2.17 2.17.1
 ```
 
-Release-pinned operators — `odf-operator` 4.18.x on OCP 4.18 and the rest of
-the ODF family, detected from the version data — aim for the target release's
-channel head rather than the highest version overall.
+**Release-pinned operators follow the strict EUS path.** An operator whose
+versions track the OCP release — `odf-operator` 4.18.x on OCP 4.18, `nfd`,
+`kubernetes-nmstate-operator`, `kubevirt-hyperconverged`, detected from the
+version data — is upgraded with the cluster: each release's own version from
+that release's catalog, in turn, even when a target bundle's skipRange would
+allow the jump. On an EUS path that always needs the intermediate catalog:
+
+```
+nfd, installed stable / 4.18.0-202602261953, OCP 4.18 -> 4.20 EUS
+
+  from 4.19: stable 4.19.0-202609200358
+  from 4.20: stable 4.20.0-202609201357
+  -> intermediate_catalog_required: mirror the 4.19 catalog for it too
+```
 
 ### oc-mirror configuration
 
@@ -227,7 +259,28 @@ output/
 ```
 
 The cluster summary has one column per catalog and lists the catalogs to
-mirror; the per-operator report has one row group per catalog the operator is
+mirror. A column an operator is not upgraded from validates the bundle it is
+on by then, in this order:
+
+1. its metadata declares `maxOpenShiftVersion`: "supports 4.18 to 4.21"
+2. no max declared, but that catalog ships the same channel and version: it
+   works there, "✓ no action" (a newer version of the channel is noted)
+3. not shipped, but the target catalog's planned version is: the planned
+   upgrade happens on that release, once, and the target column shows
+   "✓ no action, upgraded on 4.19" (the bundles still come from the target
+   catalog); otherwise, if a newer version of its channel is shipped, that
+   upgrade is shown
+4. none of these: a ⚠ warning, also added to the operator's notes; likewise
+   when no bundle metadata is available (hand-supplied catalogs) or the
+   operator is not found in its catalog image
+
+A final pass over each finished row removes duplicates: an upgrade to the same
+channel and version shown in more than one column is kept in the lowest one,
+and the higher ones become "✓ no action, upgraded on" it.
+
+When the input has no `max_ocp_version`, the installed bundle's value from the
+pulled catalog is used. The plan JSON carries each row as `matrix`, and the
+checks behind it as `columns`; the per-operator report has one row group per catalog the operator is
 upgraded from — info table, graph, steps.
 
 A shared catalog only grows: a cluster needing packages it lacks pulls it

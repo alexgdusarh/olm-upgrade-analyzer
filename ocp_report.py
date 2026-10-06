@@ -204,6 +204,8 @@ table.ops th { vertical-align:top; }
 .cell-sub { font-size:11.5px; color:#777; margin-top:3px; }
 .cell-ok { color:#4caf50; } .cell-bad { color:#e05252; }
 .cell-none { color:#bbb; text-align:center; }
+.cell-meta { color:#555; font-size:12.5px; }
+.cell-warn { color:#8a6100; background:#fff8e1; font-size:12.5px; }
 .cell-rule { border:none; border-top:1px dashed #ddd; margin:8px 0; }
 .legend { font-size:13px; color:#666; background:#f7f7fa; border-left:3px solid #ccd;
           padding:11px 14px; border-radius:4px; margin-bottom:14px; }
@@ -230,13 +232,29 @@ def _phase_html(catalog: Dict, pkg: str, phase: Dict) -> str:
     cls = {'no_action': 'ok', 'upgrade_required': 'warn'}.get(status, '')
 
     frm, to = phase['from'], phase['to']
-    if phase['kind'] == 'intermediate':
+    if phase['kind'] == 'current':
+        kind = 'Current catalog, before the cluster upgrade'
+        purpose = ("The installed bundle's maxOpenShiftVersion is below the "
+                   "target. Upgrade to a version present in every catalog on "
+                   "the path whose metadata supports the target, so the "
+                   "operator stays valid through the whole upgrade.")
+    elif phase['kind'] == 'intermediate':
         kind = 'Intermediate catalog'
-        purpose = ("The target catalog does not cover the installed version. "
-                   "Mirror and deploy this catalog, and upgrade from it first.")
+        if phase.get('reason') == 'release_pinned':
+            purpose = ("Release-pinned operator: upgraded with the cluster to "
+                       "this release's version, as the strict EUS path "
+                       "requires. Mirror and deploy this catalog.")
+        else:
+            purpose = ("The target catalog does not cover the installed "
+                       "version. Mirror and deploy this catalog, and upgrade "
+                       "from it first.")
     else:
         kind = 'Target catalog'
         purpose = "The catalog every operator is checked against first."
+        if phase.get('done_on'):
+            purpose += (f" Upgrade while the cluster is on {phase['done_on']}"
+                        f": the installed version is no longer in that "
+                        f"release's catalog.")
 
     info = f"""<table class="info">
   <tr><td class="label">Catalog</td><td><strong>OCP {phase['on_ocp']}</strong></td></tr>
@@ -346,6 +364,7 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
     head = ""
     for ocp in ocp_path:
         sub = ('target catalog' if ocp == cluster['target']
+               else 'current catalog, before the upgrade' if ocp == ocp_path[0]
                else 'intermediate, only if needed')
         head += (f'<th>From the {ocp} catalog'
                  f'<div class="th-sub">{sub}</div></th>')
@@ -353,20 +372,8 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
     rows = ""
     for op in plan['operators']:
         v = op['verdict']
-        by_catalog = {ph['on_ocp']: ph for ph in op['phases']}
-        cells = ""
-        for ocp in ocp_path:
-            ph = by_catalog.get(ocp)
-            if not ph:
-                cells += '<td class="cell-none">&mdash;</td>'
-            elif ph['status'] == 'no_action':
-                cells += '<td><span class="cell-ok">&#10003; no action</span></td>'
-            else:
-                what = (f"{ph['hops']} upgrade" + ('s' if ph['hops'] != 1 else '')
-                        if ph['hops'] else 'channel switch only')
-                cells += (f'<td>{ph["to"]["channel"]}<br><strong>'
-                          f'{ph["to"]["version"]}</strong>'
-                          f'<div class="cell-sub">{what}</div></td>')
+        cells = "".join(_matrix_cell(c, ocp_path)
+                        for c in op.get('matrix') or [])
 
         inp = op['input']
         rows += (f'<tr><td><a href="{op["operator"]}/index.html">'
@@ -417,6 +424,48 @@ must be mirrored and deployed too.</div>
     path.write_text(_page(cluster.get('name') or "Cluster Operator Upgrade Plan",
                           body))
     return str(path)
+
+
+def _matrix_cell(cell: Dict, ocp_path: List[str]) -> str:
+    """One cell of the summary matrix, as built by build_matrix."""
+    kind = cell['kind']
+    if kind == 'upgrade':
+        hops = cell['hops']
+        what = (f"{hops} upgrade" + ('s' if hops != 1 else '')
+                if hops else 'channel switch only')
+        if cell.get('replaces_missing'):
+            what += (f" on this release; {cell['replaces_missing']} not in "
+                     f"this catalog")
+        return (f'<td>{cell["channel"]}<br><strong>{cell["version"]}</strong>'
+                f'<div class="cell-sub">{what}</div></td>')
+    if kind == 'newer':
+        return (f'<td>{cell["channel"]}<br><strong>{cell["version"]}</strong>'
+                f'<div class="cell-sub">upgrade available; '
+                f'{cell["from_version"]} not in this catalog</div></td>')
+    if kind == 'no_action':
+        when = (f'<div class="cell-sub">upgraded on {cell["upgraded_on"]}'
+                f'</div>' if cell.get('upgraded_on') else '')
+        return f'<td><span class="cell-ok">&#10003; no action</span>{when}</td>'
+    if kind == 'max':
+        top = cell['max_ocp_version']
+        return (f'<td class="cell-meta">metadata maxOpenShiftVersion {top}'
+                f'<div class="cell-sub">supports {ocp_path[0]} to {top}'
+                f'</div></td>')
+    if kind == 'present':
+        newer = (f'<div class="cell-sub">{cell["newer"]} available</div>'
+                 if cell.get('newer') else '')
+        return ('<td><span class="cell-ok">&#10003; no action</span>'
+                f'<div class="cell-sub">{cell["channel"]} {cell["version"]} '
+                f'in this catalog</div>{newer}</td>')
+    if kind == 'missing':
+        return ('<td class="cell-warn">&#9888; not in this catalog'
+                '<div class="cell-sub">no maxOpenShiftVersion in metadata'
+                '</div></td>')
+    if kind == 'unknown':
+        return ('<td class="cell-warn">&#9888; bundle metadata not available'
+                '<div class="cell-sub">supported releases unknown</div></td>')
+    return ('<td class="cell-warn">&#9888; not found'
+            '<div class="cell-sub">see the operator notes</div></td>')
 
 
 def _mirror_html(plan: Dict) -> str:

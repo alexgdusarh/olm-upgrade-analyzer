@@ -166,6 +166,34 @@ catalogs a disconnected cluster must mirror.
 - `skips` is now an upgrade edge alongside `replaces` and `skipRange`.
 - An EUS path must start on an even minor, since EUS releases are the even
   ones.
+- Release-pinned operators (versions tracking the OCP release, e.g. nfd,
+  kubevirt-hyperconverged, ODF) follow the strict EUS path: each release's own
+  version from that release's catalog, so the intermediate catalog is required
+  even when a target bundle's skipRange would allow the jump.
+- In the summary matrix, a catalog column an operator is not upgraded from
+  validates the bundle it is on by then instead of showing a dash: its
+  declared `maxOpenShiftVersion` ("supports 4.18 to X"); else, when that
+  catalog ships the same channel and version, "no action"; else, when it ships
+  the target's planned version, the planned upgrade on that release, with the
+  target column then "no action, upgraded on" it; else the upgrade to a newer
+  version of its channel; else a warning, also in the operator's
+  notes, as when no bundle metadata is available or the operator is not found.
+  A final pass over each row keeps an upgrade shown in several columns only in
+  the lowest one; the higher become "no action, upgraded on" it. The rows are
+  in the plan JSON as `matrix`, the checks behind them as `columns`. An empty input
+  `max_ocp_version` falls back to the installed bundle's value in the pulled
+  catalog.
+- When several channels carry the latest version, the subscribed channel is
+  kept instead of switching to the one whose name sorts higher
+  (cert-manager `stable-v1` 1.19.2 now goes to `stable-v1` 1.20.1, not
+  `stable-v1.20`).
+- Each bundle's `olm.maxOpenShiftVersion` is recorded when the catalogs are
+  pulled (`packages-v<major>.<minor>.json`); catalogs pulled before are pulled
+  again once.
+- An installed bundle whose `max_ocp_version` is below the target is upgraded,
+  from the current catalog and before the cluster upgrade, to a bundle present
+  in every catalog on the path whose own `maxOpenShiftVersion` reaches the
+  target, when the target catalog covers it.
 - Outputs go to `<output-dir>/<cluster_name>/` (html, `imageset-config.yaml`
   and `plan.json`), taking `cluster_name` (or `cluster-name`) from the input,
   so 150+ clusters can share one output directory. `--output-dir` defaults to

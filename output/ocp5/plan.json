@@ -47,6 +47,7 @@
         {
           "phase": 1,
           "kind": "target",
+          "reason": "not_covered",
           "on_ocp": "4.20",
           "status": "no_action",
           "from": {
@@ -55,7 +56,8 @@
           },
           "to": {
             "channel": "v5",
-            "version": "5.24.0"
+            "version": "5.24.0",
+            "max_ocp_version": null
           },
           "hops": 0,
           "steps": []
@@ -63,10 +65,49 @@
       ],
       "steps": [],
       "notes": [],
+      "bundle_metadata": true,
       "goal": {
         "channel": "v5",
         "version": "5.24.0"
       },
+      "columns": {
+        "4.18": {
+          "channel": "v5",
+          "version": "5.24.0",
+          "max_ocp_version": null,
+          "newer": null,
+          "state": "present"
+        },
+        "4.19": {
+          "channel": "v5",
+          "version": "5.24.0",
+          "max_ocp_version": null,
+          "newer": null,
+          "state": "present"
+        }
+      },
+      "matrix": [
+        {
+          "kind": "present",
+          "channel": "v5",
+          "version": "5.24.0",
+          "newer": null,
+          "max_ocp_version": null,
+          "ocp": "4.18"
+        },
+        {
+          "kind": "present",
+          "channel": "v5",
+          "version": "5.24.0",
+          "newer": null,
+          "max_ocp_version": null,
+          "ocp": "4.19"
+        },
+        {
+          "kind": "no_action",
+          "ocp": "4.20"
+        }
+      ],
       "input_name": "grafana-operator",
       "catalog_image": "registry.redhat.io/redhat/community-operator-index:v4.18",
       "html": "output/ocp5/html/grafana-operator/index.html"
@@ -88,6 +129,7 @@
         {
           "phase": 1,
           "kind": "target",
+          "reason": "not_covered",
           "on_ocp": "4.20",
           "status": "upgrade_required",
           "from": {
@@ -95,8 +137,9 @@
             "version": "1.19.2"
           },
           "to": {
-            "channel": "stable-v1.20",
-            "version": "1.20.1"
+            "channel": "stable-v1",
+            "version": "1.20.1",
+            "max_ocp_version": null
           },
           "hops": 2,
           "steps": [
@@ -112,11 +155,12 @@
               "catalog": "4.20",
               "from_channel": "stable-v1",
               "from_version": "1.20.0",
-              "to_channel": "stable-v1.20",
+              "to_channel": "stable-v1",
               "to_version": "1.20.1",
               "via": "skipRange"
             }
-          ]
+          ],
+          "done_on": "4.19"
         }
       ],
       "steps": [
@@ -132,18 +176,62 @@
           "catalog": "4.20",
           "from_channel": "stable-v1",
           "from_version": "1.20.0",
-          "to_channel": "stable-v1.20",
+          "to_channel": "stable-v1",
           "to_version": "1.20.1",
           "via": "skipRange"
         }
       ],
       "notes": [
-        "1.19.2 (channel stable-v1) is not in the 4.20 catalog, which upgrades it to 1.20.1 (channel stable-v1.20)."
+        "1.19.2 (channel stable-v1) is not in the 4.20 catalog, which upgrades it to 1.20.1 (channel stable-v1).",
+        "Upgrade while the cluster is on 4.19: 1.19.2 (channel stable-v1) is not in the 4.19 catalog, but the planned 1.20.1 (channel stable-v1) is. The bundles still come from the 4.20 catalog."
       ],
+      "bundle_metadata": true,
       "goal": {
-        "channel": "stable-v1.20",
+        "channel": "stable-v1",
         "version": "1.20.1"
       },
+      "columns": {
+        "4.18": {
+          "channel": "stable-v1",
+          "version": "1.19.2",
+          "max_ocp_version": null,
+          "newer": null,
+          "state": "present"
+        },
+        "4.19": {
+          "channel": "stable-v1",
+          "version": "1.19.2",
+          "max_ocp_version": null,
+          "newer": "1.20.1",
+          "state": "upgrade",
+          "to_channel": "stable-v1",
+          "to_version": "1.20.1",
+          "hops": 2
+        }
+      },
+      "matrix": [
+        {
+          "kind": "present",
+          "channel": "stable-v1",
+          "version": "1.19.2",
+          "newer": null,
+          "max_ocp_version": null,
+          "ocp": "4.18"
+        },
+        {
+          "kind": "upgrade",
+          "channel": "stable-v1",
+          "version": "1.20.1",
+          "hops": 2,
+          "replaces_missing": "1.19.2",
+          "ocp": "4.19"
+        },
+        {
+          "kind": "no_action",
+          "upgraded_on": "4.19",
+          "ocp": "4.20"
+        }
+      ],
       "input_name": "openshift-cert-manager-operator",
       "catalog_image": "registry.redhat.io/redhat/redhat-operator-index:v4.18",
       "html": "output/ocp5/html/openshift-cert-manager-operator/index.html"
