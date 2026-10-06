@@ -164,6 +164,8 @@ catalogs a disconnected cluster must mirror.
 
 ### Changed
 - `skips` is now an upgrade edge alongside `replaces` and `skipRange`.
+- Report graphs are deterministic: the SVG has fixed element ids and no
+  timestamp, so rerunning on the same data leaves the reports unchanged.
 - An EUS path must start on an even minor, since EUS releases are the even
   ones.
 - Release-pinned operators (versions tracking the OCP release, e.g. nfd,

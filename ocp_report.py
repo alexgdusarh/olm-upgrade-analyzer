@@ -14,6 +14,8 @@ from typing import Dict, List, Optional, Tuple
 
 import matplotlib
 matplotlib.use('Agg')
+# Same graph, same SVG: fixed element ids, so reruns do not churn reports.
+matplotlib.rcParams['svg.hashsalt'] = 'olm-upgrade-analyzer'
 import matplotlib.pyplot as plt
 import networkx as nx
 
@@ -151,7 +153,8 @@ def _phase_graph(catalog: Dict, pkg: str, phase: Dict) -> Optional[str]:
     plt.tight_layout()
 
     buf = StringIO()
-    fig.savefig(buf, format='svg', bbox_inches='tight')
+    fig.savefig(buf, format='svg', bbox_inches='tight',
+                metadata={'Date': None})
     plt.close(fig)
     svg = buf.getvalue()
     return svg[svg.find('<svg'):]
