@@ -274,9 +274,10 @@ on by then, in this order:
    when no bundle metadata is available (hand-supplied catalogs) or the
    operator is not found in its catalog image
 
-When nothing has to be done, the row reads "✓ no action" in every column, and
-only the target column adds the newest version as "available (optional)",
-with its channel when that differs.
+When nothing has to be done, the row reads "✓ no action" in every column but
+the target, which shows the newest version instead, "1.15.2 available,
+optional", with its channel when that differs; "✓ no action" there only when
+the installed version is already the newest.
 
 A final pass over each finished row removes duplicates: an upgrade to the same
 channel and version shown in more than one column is kept in the lowest one,

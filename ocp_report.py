@@ -208,6 +208,7 @@ table.ops th { vertical-align:top; }
 .cell-ok { color:#4caf50; } .cell-bad { color:#e05252; }
 .cell-none { color:#bbb; text-align:center; }
 .cell-meta { color:#555; font-size:12.5px; }
+.cell-opt { color:#3f51b5; }
 .cell-warn { color:#8a6100; background:#fff8e1; font-size:12.5px; }
 .cell-rule { border:none; border-top:1px dashed #ddd; margin:8px 0; }
 .legend { font-size:13px; color:#666; background:#f7f7fa; border-left:3px solid #ccd;
@@ -450,10 +451,12 @@ def _matrix_cell(cell: Dict, ocp_path: List[str]) -> str:
                 f'</div>' if cell.get('upgraded_on') else '')
         latest = cell.get('available')
         if latest:
-            chan = (f'{latest["channel"]} ' if latest['channel_changes']
+            # nothing required here; say what can optionally be taken
+            chan = (f'{latest["channel"]}<br>' if latest['channel_changes']
                     else '')
-            when += (f'<div class="cell-sub">{chan}{latest["version"]} '
-                     f'available (optional)</div>')
+            return (f'<td class="cell-opt">{chan}<strong>{latest["version"]}'
+                    f'</strong> available<div class="cell-sub">optional'
+                    f'</div></td>')
         return f'<td><span class="cell-ok">&#10003; no action</span>{when}</td>'
     if kind == 'max':
         top = cell['max_ocp_version']

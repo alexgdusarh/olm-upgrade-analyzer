@@ -164,9 +164,10 @@ catalogs a disconnected cluster must mirror.
 
 ### Changed
 - `skips` is now an upgrade edge alongside `replaces` and `skipRange`.
-- A row needing no action reads "no action" in every column; only the target
-  column adds the newest version as "available (optional)", instead of each
-  column naming the newest version of its own catalog.
+- A row needing no action reads "no action" in every column but the target,
+  which shows the newest version as "available, optional" (or "no action"
+  when already the newest), instead of each column naming the newest version
+  of its own catalog.
 - Report graphs are deterministic: the SVG has fixed element ids and no
   timestamp, so rerunning on the same data leaves the reports unchanged.
 - An EUS path must start on an even minor, since EUS releases are the even
