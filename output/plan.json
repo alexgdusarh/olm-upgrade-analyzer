@@ -1,0 +1,275 @@
+{
+  "cluster": {
+    "current": "4.18.28",
+    "target": "4.20",
+    "channel": "eus",
+    "ocp_path": [
+      "4.18",
+      "4.19",
+      "4.20"
+    ]
+  },
+  "verdict": "operator_upgrade_required",
+  "blocking_operators": [],
+  "manual_review_operators": [],
+  "operators_requiring_upgrade": [
+    "openshift-cert-manager-operator"
+  ],
+  "catalogs": {
+    "4.18": "data-v4.18.json",
+    "4.19": "data-v4.19.json",
+    "4.20": "data-v4.20.json"
+  },
+  "operators": [
+    {
+      "operator": "grafana-operator",
+      "input": {
+        "channel": "v5",
+        "version": "5.24.0"
+      },
+      "ocp_path": [
+        "4.18",
+        "4.19",
+        "4.20"
+      ],
+      "version_pinned": false,
+      "phases": [
+        {
+          "phase": 1,
+          "kind": "pre-upgrade",
+          "on_ocp": "4.18",
+          "satisfies": [
+            "4.18",
+            "4.19"
+          ],
+          "from": {
+            "channel": "v5",
+            "version": "5.24.0"
+          },
+          "status": "no_action",
+          "to": {
+            "channel": "v5",
+            "version": "5.24.0"
+          },
+          "hops": 0,
+          "steps": []
+        },
+        {
+          "phase": 2,
+          "kind": "pre-upgrade",
+          "on_ocp": "4.19",
+          "satisfies": [
+            "4.19",
+            "4.20"
+          ],
+          "from": {
+            "channel": "v5",
+            "version": "5.24.0"
+          },
+          "status": "no_action",
+          "to": {
+            "channel": "v5",
+            "version": "5.24.0"
+          },
+          "hops": 0,
+          "steps": []
+        },
+        {
+          "phase": 3,
+          "kind": "post-upgrade",
+          "on_ocp": "4.20",
+          "satisfies": [
+            "4.20"
+          ],
+          "from": {
+            "channel": "v5",
+            "version": "5.24.0"
+          },
+          "status": "no_action",
+          "to": {
+            "channel": "v5",
+            "version": "5.24.0"
+          },
+          "hops": 0,
+          "steps": []
+        }
+      ],
+      "notes": [],
+      "verdict": "no_action_required",
+      "blocking": false,
+      "input_name": "grafana-operator",
+      "catalog_image": "registry.redhat.io/redhat/community-operator-index:v4.18",
+      "html": "output/html/grafana-operator/index.html"
+    },
+    {
+      "operator": "openshift-cert-manager-operator",
+      "input": {
+        "channel": "stable-v1",
+        "version": "1.19.2"
+      },
+      "ocp_path": [
+        "4.18",
+        "4.19",
+        "4.20"
+      ],
+      "version_pinned": false,
+      "phases": [
+        {
+          "phase": 1,
+          "kind": "pre-upgrade",
+          "on_ocp": "4.18",
+          "satisfies": [
+            "4.18",
+            "4.19"
+          ],
+          "from": {
+            "channel": "stable-v1",
+            "version": "1.19.2"
+          },
+          "status": "upgrade_required",
+          "to": {
+            "channel": "stable-v1.19",
+            "version": "1.19.2"
+          },
+          "hops": 0,
+          "steps": [
+            {
+              "from_channel": "stable-v1",
+              "from_version": "1.19.2",
+              "to_channel": "stable-v1.19",
+              "to_version": "1.19.2",
+              "via": "channel-switch"
+            }
+          ]
+        },
+        {
+          "phase": 2,
+          "kind": "pre-upgrade",
+          "on_ocp": "4.19",
+          "satisfies": [
+            "4.19",
+            "4.20"
+          ],
+          "from": {
+            "channel": "stable-v1.19",
+            "version": "1.19.2"
+          },
+          "status": "no_action",
+          "to": {
+            "channel": "stable-v1.19",
+            "version": "1.19.2"
+          },
+          "hops": 0,
+          "steps": []
+        },
+        {
+          "phase": 3,
+          "kind": "post-upgrade",
+          "on_ocp": "4.20",
+          "satisfies": [
+            "4.20"
+          ],
+          "from": {
+            "channel": "stable-v1.19",
+            "version": "1.19.2"
+          },
+          "status": "upgrade_available",
+          "to": {
+            "channel": "stable-v1.20",
+            "version": "1.20.1"
+          },
+          "hops": 2,
+          "steps": [
+            {
+              "from_channel": "stable-v1.19",
+              "from_version": "1.19.2",
+              "to_channel": "stable-v1",
+              "to_version": "1.20.0",
+              "via": "skipRange"
+            },
+            {
+              "from_channel": "stable-v1",
+              "from_version": "1.20.0",
+              "to_channel": "stable-v1.20",
+              "to_version": "1.20.1",
+              "via": "skipRange"
+            }
+          ]
+        }
+      ],
+      "notes": [],
+      "verdict": "operator_upgrade_required",
+      "blocking": false,
+      "input_name": "openshift-cert-manager-operator",
+      "catalog_image": "registry.redhat.io/redhat/redhat-operator-index:v4.18",
+      "html": "output/html/openshift-cert-manager-operator/index.html"
+    }
+  ],
+  "mirror": {
+    "verdict": "ok",
+    "critical_operators": [],
+    "catalogs_to_mirror": {
+      "4.20": [
+        "registry.redhat.io/redhat/community-operator-index:v4.20",
+        "registry.redhat.io/redhat/redhat-operator-index:v4.20"
+      ]
+    },
+    "operators": [
+      {
+        "operator": "grafana-operator",
+        "catalog_image": "registry.redhat.io/redhat/community-operator-index:v4.18",
+        "installed": {
+          "channel": "v5",
+          "version": "5.24.0"
+        },
+        "status": "ok",
+        "catalogs": [
+          "4.20"
+        ],
+        "steps": [],
+        "notes": [],
+        "goal": {
+          "channel": "v5",
+          "version": "5.24.0"
+        }
+      },
+      {
+        "operator": "openshift-cert-manager-operator",
+        "catalog_image": "registry.redhat.io/redhat/redhat-operator-index:v4.18",
+        "installed": {
+          "channel": "stable-v1",
+          "version": "1.19.2"
+        },
+        "status": "ok",
+        "catalogs": [
+          "4.20"
+        ],
+        "steps": [
+          {
+            "catalog": "4.20",
+            "from_channel": "stable-v1",
+            "from_version": "1.19.2",
+            "to_channel": "stable-v1",
+            "to_version": "1.20.0",
+            "via": "skipRange"
+          },
+          {
+            "catalog": "4.20",
+            "from_channel": "stable-v1",
+            "from_version": "1.20.0",
+            "to_channel": "stable-v1.20",
+            "to_version": "1.20.1",
+            "via": "skipRange"
+          }
+        ],
+        "notes": [],
+        "goal": {
+          "channel": "stable-v1.20",
+          "version": "1.20.1"
+        }
+      }
+    ],
+    "imageset_config": "output/imageset-config.yaml"
+  },
+  "summary_html": "output/html/index.html"
+}

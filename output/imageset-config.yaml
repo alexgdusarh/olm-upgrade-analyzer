@@ -1,0 +1,25 @@
+kind: ImageSetConfiguration
+apiVersion: mirror.openshift.io/v2alpha1
+mirror:
+  operators:
+  - catalog: registry.redhat.io/redhat/community-operator-index:v4.20
+    packages:
+    - name: grafana-operator
+      channels:
+      - name: v5
+        minVersion: "5.24.0"
+        maxVersion: "5.24.0"
+  - catalog: registry.redhat.io/redhat/redhat-operator-index:v4.20
+    packages:
+    - name: openshift-cert-manager-operator
+      channels:
+      - name: stable-v1
+        minVersion: "1.20.0"
+        maxVersion: "1.20.0"
+      - name: stable-v1.20
+        minVersion: "1.20.1"
+        maxVersion: "1.20.1"
+    # dependency of web-terminal; channel head
+    - name: devworkspace-operator
+      channels:
+      - name: fast

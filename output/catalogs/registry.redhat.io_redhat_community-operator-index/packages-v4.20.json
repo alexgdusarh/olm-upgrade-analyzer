@@ -1,0 +1,6 @@
+{
+  "grafana-operator": {
+    "defaultChannel": "v5",
+    "present": true
+  }
+}

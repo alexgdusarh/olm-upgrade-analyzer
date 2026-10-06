@@ -1,0 +1,10 @@
+{
+  "devworkspace-operator": {
+    "defaultChannel": "fast",
+    "present": true
+  },
+  "openshift-cert-manager-operator": {
+    "defaultChannel": "stable-v1",
+    "present": true
+  }
+}
