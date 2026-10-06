@@ -257,6 +257,8 @@ def _vendor_table(vendor: Dict, ocp_path: List[str]) -> str:
         tags = ''
         if rel['installed']:
             tags += '<span class="badge grey">installed</span>'
+        if rel.get('possible') and not vendor['installed']:
+            tags += '<span class="badge warn">possible</span>'
         if rel['recommended'] and not rel['installed']:
             tags += '<span class="badge ok">recommended</span>'
         cells = ''
@@ -277,8 +279,12 @@ def _vendor_table(vendor: Dict, ocp_path: List[str]) -> str:
 
     status = {'ok': ('ok', 'certified for this path'),
               'blocked': ('bad', 'blocks the upgrade'),
+              'inferred': ('warn', 'release inferred, confirm it'),
               'unknown': ('warn', 'installed release unknown')}[vendor['status']]
-    installed = vendor['installed'] or 'unknown'
+    installed = vendor['installed'] or (
+        f"not given ({', '.join(vendor['possible'])} possible with operator "
+        f"{vendor['operator_version']})" if vendor.get('possible')
+        else 'unknown')
     advice = ''
     rec = vendor.get('recommended')
     if vendor['status'] == 'blocked' and rec:
@@ -289,9 +295,12 @@ def _vendor_table(vendor: Dict, ocp_path: List[str]) -> str:
             advice = (f"Upgrade {vendor['label']} to {rec['version']} with "
                       f"operator {rec['operator_min']} or later before the "
                       f"cluster upgrade.")
-    elif vendor['status'] == 'unknown':
-        advice = ("Add the installed release to the input "
-                  "(component_versions) to check it.")
+    elif vendor['status'] == 'blocked' and not vendor['installed']:
+        advice = (f"None of the releases operator {vendor['operator_version']} "
+                  f"can run is certified for this path.")
+    elif vendor['status'] in ('unknown', 'inferred'):
+        advice = ("Confirm the installed release, or add it to the input "
+                  "(component_versions).")
     return f"""<div class="vendor-box">
   <div class="vendor-head"><strong>{vendor['label']} support matrix</strong>
     &mdash; installed {installed}, operator {vendor['operator_version']}
@@ -311,6 +320,7 @@ def _vendor_row(vendor: Optional[Dict]) -> str:
         return ''
     status = {'ok': ('ok', 'certified for the path'),
               'blocked': ('bad', 'blocks the upgrade'),
+              'inferred': ('warn', 'release inferred'),
               'unknown': ('warn', 'not checked')}[vendor['status']]
     rec = vendor.get('recommended')
     rec_txt = (f" &rarr; upgrade to {rec['version']} with operator "
@@ -423,7 +433,7 @@ def generate_operator_report(catalogs: Dict[str, Dict], result: Dict,
 {cluster['current']} &rarr; {cluster['target']} ({cluster['channel']}) cluster upgrade</div>
 <table class="info">
   <tr><td class="label">Verdict</td><td>{badge}{pinned}</td></tr>
-  <tr><td class="label">Cluster path</td><td>{' &rarr; '.join(ocp_path)}</td></tr>
+  <tr><td class="label">Cluster path</td><td>{' &rarr; '.join(cluster.get('upgrade_path') or ocp_path)}</td></tr>
   <tr><td class="label">Catalog image</td><td><code>{result.get('catalog_image', '')}</code></td></tr>
   <tr><td class="label">Installed channel</td><td>{inp.get('resolved_channel', inp['channel'])}</td></tr>
   <tr><td class="label">Installed version</td><td><strong>{inp.get('resolved_version', inp['version'])}</strong></td></tr>
@@ -509,7 +519,7 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
 ({cluster['channel']} channel)</div>
 <table class="info">
   <tr><td class="label">Overall verdict</td><td>{badge}</td></tr>
-  <tr><td class="label">Cluster path</td><td>{' &rarr; '.join(ocp_path)}</td></tr>
+  <tr><td class="label">Cluster path</td><td>{' &rarr; '.join(cluster.get('upgrade_path') or ocp_path)}</td></tr>
   <tr><td class="label">Operators analysed</td><td>{len(plan['operators'])}</td></tr>
   {listing(plan['blocking_operators'], 'Blocked', 'bad')}
   {listing(plan['intermediate_catalog_operators'], 'Intermediate catalog required', 'bad')}
@@ -542,8 +552,10 @@ def _vendor_line(v: Optional[Dict]) -> str:
     """The vendor support matrix's verdict for one OpenShift release."""
     if not v:
         return ''
-    name = f"{v['label']} {v['installed'] or '?'}"
-    if v['status'] == 'unknown':
+    name = (f"{v['label']} {v['installed']}" if v['installed'] else
+            f"{v['label']} {v['inferred']} (inferred)" if v.get('inferred')
+            else v['label'])
+    if v['ok'] is None:
         return (f'<div class="cell-vendor warn">&#9888; {v["label"]} '
                 f'version unknown</div>')
     short = v.get('operator_short')

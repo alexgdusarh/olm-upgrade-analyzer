@@ -31,6 +31,16 @@ including any per-release minimum on the path. Otherwise the operator blocks
 the cluster upgrade, and the lowest release at or above the installed one that
 covers the whole path is recommended.
 
+When the cluster's upgrade path is known (4.18.14 -> 4.18.30 -> 4.19.33 ->
+4.20.34), each release must be certified up to the highest version the path
+reaches on it, the intermediate release included.
+
+When the installed release is not known, it is narrowed down from the matrix:
+a release can only run with an operator at or above its minimum, so the
+installed operator rules out every release needing a newer one. If none of
+the remaining releases covers the path the operator blocks the upgrade;
+otherwise the possibilities are reported for confirmation.
+
 Nothing here is specific to one vendor.
 """
 
@@ -46,6 +56,7 @@ DEFAULT_FILE = Path(__file__).resolve().parent / 'constraints' / 'vendor-support
 OK = 'ok'
 BLOCKED = 'blocked'
 UNKNOWN = 'unknown'
+INFERRED = 'inferred'
 
 
 def load_constraints(path: Optional[str]) -> Dict:
@@ -68,9 +79,25 @@ def _has_z(ocp: str) -> bool:
     return bool(re.match(r'^v?\d+\.\d+\.\d+', str(ocp).strip()))
 
 
-def _required(ocp_path: List[str], current: str, target: str) -> Dict:
-    """The OpenShift version each release on the path must be certified to."""
+def _minor(ver: str) -> str:
+    m = re.match(r'^v?(\d+)\.(\d+)', str(ver).strip())
+    return f"{m.group(1)}.{m.group(2)}" if m else ''
+
+
+def _required(ocp_path: List[str], current: str, target: str,
+              upgrade_path: Optional[List[str]] = None) -> Dict:
+    """
+    The OpenShift version each release on the path must be certified to: the
+    highest version the upgrade path reaches on it, or, without a path, the
+    current and target versions (an intermediate release just listed).
+    """
     need = {r: None for r in ocp_path}
+    if upgrade_path:
+        for ver in upgrade_path:
+            r = _minor(ver)
+            if r in need and (need[r] is None or _v(ver) > _v(need[r])):
+                need[r] = ver
+        return need
     if _has_z(current):
         need[ocp_path[0]] = current
     if _has_z(target):
@@ -110,8 +137,8 @@ def _recommend(releases: List[Dict], ocp_path: List[str], need: Dict,
 
 
 def evaluate(constraint: Dict, ocp_path: List[str], current: str, target: str,
-             component_version: Optional[str],
-             operator_version: str) -> Dict:
+             component_version: Optional[str], operator_version: str,
+             upgrade_path: Optional[List[str]] = None) -> Dict:
     """
     Check one operator against its vendor support matrix.
 
@@ -121,8 +148,8 @@ def evaluate(constraint: Dict, ocp_path: List[str], current: str, target: str,
     and which recommended - since that is what a reader acts on.
     """
     res = _evaluate(constraint, ocp_path, current, target, component_version,
-                    operator_version)
-    need = _required(ocp_path, current, target)
+                    operator_version, upgrade_path)
+    need = _required(ocp_path, current, target, upgrade_path)
     res['required'] = need
     rec = (res.get('recommended') or {}).get('version')
     table = []
@@ -136,23 +163,105 @@ def evaluate(constraint: Dict, ocp_path: List[str], current: str, target: str,
             'installed': bool(component_version)
                          and _v(rel['version']) == _v(component_version),
             'recommended': bool(rec) and _v(rel['version']) == _v(rec),
+            'possible': rel['version'] in (res.get('possible') or []),
         })
     res['table'] = table
     return res
 
 
+def _infer(res: Dict, releases: List[Dict], ocp_path: List[str], need: Dict,
+           operator_version: str, path_txt: str, label: str) -> Dict:
+    """
+    The installed release is not known: narrow it down from the matrix. A
+    release needs at least its operator minimum, so the installed operator
+    rules out every release needing a newer one.
+    """
+    possible = [r for r in sorted(releases, key=lambda r: _v(r['version']))
+                if _v(r.get('operator_min') or '0') <= _v(operator_version)]
+    res['possible'] = [r['version'] for r in possible]
+    covering = [r for r in possible
+                if all(c['ok'] for c in _covers(r, ocp_path, need).values())]
+    ruled_out = [r for r in releases if r not in possible]
+
+    res['notes'].append(
+        f"Warning: the {label} version is not in the input, so it is "
+        f"narrowed down from the support matrix and operator "
+        f"{operator_version}.")
+    if not possible:
+        res['status'] = UNKNOWN
+        res['releases'] = {r: {'certified': None, 'required': need[r],
+                               'ok': None} for r in ocp_path}
+        res['notes'].append(
+            f"Warning: operator {operator_version} is older than every "
+            f"release in the matrix needs, so the installed {label} predates "
+            f"the matrix and its support for {path_txt} cannot be checked.")
+    else:
+        names = ', '.join(r['version'] for r in possible)
+        newer = (f" (later releases need operator "
+                 f"{min((r['operator_min'] for r in ruled_out), key=_v)} or "
+                 f"later)" if ruled_out else "")
+        res['notes'].append(
+            f"With operator {operator_version}, the installed {label} can "
+            f"only be {names}{newer}, or a release older than the matrix.")
+        if len(possible) == 1:
+            res['installed_inferred'] = possible[0]['version']
+            res['releases'] = _covers(possible[0], ocp_path, need)
+        else:
+            res['releases'] = {r: {'certified': None, 'required': need[r],
+                                   'ok': None} for r in ocp_path}
+        if not covering:
+            res['status'] = BLOCKED
+            res['notes'].append(
+                f"BLOCKED: none of them is certified for {path_txt}.")
+        else:
+            res['status'] = INFERRED
+            missing = [r for r in possible if r not in covering]
+            res['notes'].append(
+                f"{', '.join(r['version'] for r in covering)} "
+                f"{'is' if len(covering) == 1 else 'are'} certified for "
+                f"{path_txt}"
+                + (f"; {', '.join(r['version'] for r in missing)} "
+                   f"{'is' if len(missing) == 1 else 'are'} not"
+                   if missing else "")
+                + ". Confirm the installed release.")
+            for rel in missing:
+                fix = _recommend(releases, ocp_path, need, rel['version'])
+                if fix:
+                    res['notes'].append(
+                        f"If it is {rel['version']}, upgrade {label} to "
+                        f"{fix['version']} with operator {fix['operator_min']} "
+                        f"or later before the cluster upgrade.")
+
+    # Prefer a covering release the installed operator can already run.
+    rec = (_recommend(covering, ocp_path, need, None) if covering
+           else _recommend(releases, ocp_path, need, None))
+    if rec:
+        res['recommended'] = rec
+        if res['status'] != INFERRED:
+            res['notes'].append(
+                f"{label} {rec['version']} with operator "
+                f"{rec['operator_min']} or later is certified for the whole "
+                f"path.")
+    return res
+
+
 def _evaluate(constraint: Dict, ocp_path: List[str], current: str,
               target: str, component_version: Optional[str],
-              operator_version: str) -> Dict:
+              operator_version: str,
+              upgrade_path: Optional[List[str]] = None) -> Dict:
     label = constraint.get('label') or constraint['component']
     releases = constraint['releases']
-    need = _required(ocp_path, current, target)
+    need = _required(ocp_path, current, target, upgrade_path)
     res = {'component': constraint['component'], 'label': label,
            'source': constraint.get('source'), 'installed': component_version,
            'operator_version': operator_version, 'notes': []}
 
-    path_txt = (f"{current} -> {target}" if _has_z(target)
+    path_txt = (' -> '.join(upgrade_path) if upgrade_path else
+                f"{current} -> {target}" if _has_z(target)
                 else ' -> '.join(ocp_path))
+    if not component_version:
+        return _infer(res, releases, ocp_path, need, operator_version,
+                      path_txt, label)
     if not _has_z(target):
         res['notes'].append(
             f"Warning: the target {target} has no z-stream, so the "
