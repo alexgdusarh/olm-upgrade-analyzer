@@ -158,6 +158,33 @@ def resolve_ocp_path(cluster):
     return current, target, channel, ocp_path
 
 
+def resolve_upgrade_path(cluster, ocp_path):
+    """
+    cluster.upgrade_path, the versions the cluster steps through
+    (["4.18.14", "4.18.30", "4.19.33", "4.20.34"]), validated, or None.
+    """
+    path = cluster.get('upgrade_path')
+    if not path:
+        return None
+    path = [str(v).strip().lstrip('v') for v in path]
+    if any(not re.match(r'^\d+\.\d+\.\d+', v) for v in path):
+        raise ValueError(f"cluster.upgrade_path needs full versions: {path}")
+    keys = [tuple(int(x) for x in re.findall(r'\d+', v)[:3]) for v in path]
+    if keys != sorted(keys) or len(set(keys)) != len(keys):
+        raise ValueError(f"cluster.upgrade_path is not ascending: {path}")
+    minors = {f"{k[0]}.{k[1]}" for k in keys}
+    if minors != set(ocp_path):
+        raise ValueError(
+            f"cluster.upgrade_path {' -> '.join(path)} does not cover the "
+            f"releases {' -> '.join(ocp_path)}")
+    for end, ver in (('current', path[0]), ('target', path[-1])):
+        given = str(cluster.get(end, '')).lstrip('v')
+        if given.count('.') >= 2 and given != ver:
+            raise ValueError(f"cluster.upgrade_path starts or ends at {ver}, "
+                             f"but cluster.{end} is {given}")
+    return path
+
+
 def _imageset_entries(catalogs, ocp_path, group, results, catalog_dir):
     """oc-mirror catalog entries for one catalog index image."""
     wanted = {}  # ocp -> {pkg: {channel: [versions]}}
@@ -212,7 +239,8 @@ def _apply_vendor(res, op, constraints, component_overrides, cluster_info,
     vendor = evaluate_vendor(
         constraint, cluster_info['ocp_path'], cluster_info['current'],
         cluster_info['target'], version,
-        inp.get('resolved_version', inp['version']))
+        inp.get('resolved_version', inp['version']),
+        cluster_info.get('upgrade_path'))
     res['vendor'] = vendor
     res['notes'] += vendor['notes']
 
@@ -250,7 +278,8 @@ def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
     cluster, groups = parse_payload(payload)
     current, target, channel, ocp_path = resolve_ocp_path(cluster)
     cluster_info = {'name': cluster_name(payload), 'current': current,
-                    'target': target, 'channel': channel, 'ocp_path': ocp_path}
+                    'target': target, 'channel': channel, 'ocp_path': ocp_path,
+                    'upgrade_path': resolve_upgrade_path(cluster, ocp_path)}
 
     if not quiet:
         print(f"Cluster: OCP {current} -> {target} ({channel})", file=sys.stderr)
@@ -346,6 +375,8 @@ Examples:
   %(prog)s -i outputs/catalog_mirror_check.json
   %(prog)s -i outputs/catalog_mirror_check.json --authfile ~/pull-secret.json
   %(prog)s -i outputs/catalog_mirror_check.json --catalog-dir /path/to/catalogs
+  %(prog)s -i outputs/catalog_mirror_check.json \\
+      --component-version portworx-enterprise=3.6.0
 """)
     ap.add_argument('-i', '--input', help='Input JSON file (default: stdin)')
     ap.add_argument('--catalog-dir',

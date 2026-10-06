@@ -604,6 +604,7 @@ def build_matrix(ocp_path: List[str], result: Dict) -> List[Dict]:
             cell['vendor'] = dict(vendor['releases'][ocp],
                                   label=vendor['label'],
                                   installed=vendor['installed'],
+                                  inferred=vendor.get('installed_inferred'),
                                   status=vendor['status'])
             if ocp == ocp_path[0] and vendor.get('operator_ok') is False:
                 cell['vendor']['operator_short'] = {

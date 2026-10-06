@@ -178,6 +178,15 @@ catalogs a disconnected cluster must mirror.
   matrix for the path under the operator's row, and the operator page repeats
   it, with the installed and recommended releases marked; each matrix column
   shows the vendor verdict.
+- `cluster.upgrade_path` (e.g. 4.18.14, 4.18.30, 4.19.33, 4.20.34): each
+  release must be certified up to the highest version the path reaches on
+  it, the intermediate release included. Validated against `current`,
+  `target` and `ocp_path`, and shown as the cluster path in the reports.
+- An installed vendor release that is not given is narrowed down from the
+  matrix by the installed operator (a release needs at least its operator
+  minimum): blocked when none of the possible releases covers the path,
+  otherwise reported for confirmation with the upgrade each non-covering one
+  would need.
 - Report graphs are deterministic: the SVG has fixed element ids and no
   timestamp, so rerunning on the same data leaves the reports unchanged.
 - An EUS path must start on an even minor, since EUS releases are the even

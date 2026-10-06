@@ -33,6 +33,11 @@ python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json
 
 # catalogs already on disk, data-v<major>.<minor>.json
 python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json --catalog-dir /path/to/catalogs
+
+# the installed Portworx Enterprise release is known: check it exactly
+# (otherwise it is narrowed down from the operator version)
+python ocp_upgrade_planner.py -i outputs/catalog_mirror_check.json \
+    --component-version portworx-enterprise=3.6.0
 ```
 
 ## Input: catalog mirror check
@@ -68,6 +73,7 @@ Operators are grouped by the catalog index image they were installed from.
 | `cluster.target` | yes | OCP release to reach |
 | `cluster.channel` | no | `eus` or anything else (`stable`, `fast`, ...). Default `stable` |
 | `cluster.ocp_path` | no | When given it must match the path derived from `current`, `target` and `channel` |
+| `cluster.upgrade_path` | no | The versions the cluster steps through, e.g. `["4.18.14", "4.18.30", "4.19.33", "4.20.34"]`: ascending, starting at `current`, ending at `target`, covering every release of `ocp_path`. Used for vendor support matrices |
 | `operators[].pull_image` | yes | Catalog index image, at its mirror location if the cluster redirects it. Must carry a `:v<major>.<minor>` tag |
 | `packages[].name` | yes | OLM **package** name, as it appears in the catalog |
 | `packages[].channel` | yes | Subscription channel currently in use |
@@ -201,9 +207,11 @@ The installed release - `component_versions` on the package in the input, or
 `--component-version portworx-enterprise=3.6.0` - must be certified on every
 OpenShift release the cluster passes through:
 
-- current release: certified up to at least the cluster's current version
-- intermediate release: listed (its z-stream is not known in advance)
-- target release: certified up to at least the target version, so give
+- with `cluster.upgrade_path`, each release certified up to at least the
+  highest version the path reaches on it (4.18.30, 4.19.33, 4.20.34), the
+  intermediate release included
+- without it: the current release up to the cluster's current version, the
+  intermediate release listed, the target up to the target version, so give
   `cluster.target` with its z-stream (`4.20.34`)
 - the installed operator at least the release's minimum, including a
   per-release one (`operator_min_per_openshift`, e.g. 25.6.0 for 4.21)
@@ -211,7 +219,15 @@ OpenShift release the cluster passes through:
 Otherwise the operator is **blocked**, and the lowest release at or above the
 installed one that covers the whole path is recommended, with its operator
 minimum and the current catalog's version meeting it, preferring the
-subscribed channel. A missing release version is a warning.
+subscribed channel.
+
+When the installed release is not given, it is narrowed down from the matrix:
+a release needs at least its operator minimum, so the installed operator rules
+out every release needing a newer one. With operator 25.5.2 only 3.5.3 is
+possible (later releases need 26.1.0); with 26.1.5, 3.5.3 or 3.6.0. If none of
+the possible releases is certified for the path the operator is blocked;
+otherwise they are reported, marked in the table, with the upgrade each
+non-covering one would need, for confirmation.
 
 ```
 portworx-certified, Portworx Enterprise 3.6.0, OCP 4.18.14 -> 4.20.34 EUS
