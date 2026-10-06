@@ -32,7 +32,7 @@ mirror, and prints the plan as JSON.
 python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json
 
 # catalogs already on disk, data-v<major>.<minor>.json
-python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json --catalog-dir ./catalogs
+python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json --catalog-dir /path/to/catalogs
 ```
 
 ## Input: catalog mirror check
@@ -200,8 +200,9 @@ A mismatch is rejected rather than guessed:
 Named `data-v<major>.<minor>.json`, one per OCP release, holding the
 `olm.channel` objects of an OLM file-based catalog. They are normally pulled at
 run time into `<fetch-dir>/<image>/`. To work offline, point `--catalog-dir` at
-a directory of them instead; the underscore form `data-v4_18.json` is also
-accepted there.
+a directory of them instead, holding every release on the path; the underscore
+form `data-v4_18.json` is also accepted there. `catalogs/data-v4.22.json` is
+an example of the format.
 
 Only releases on the path are read. A 4.18 to 4.20 EUS run opens 4.18, 4.19 and
 4.20 and ignores any other catalogs sitting there.
@@ -289,7 +290,7 @@ Abbreviated — each object carries more keys than shown:
 The original tool. One operator, one catalog, shortest path to a target.
 
 ```bash
-python operator_interactive.py -f data.json -o OPERATOR -v VERSION [-c CHANNEL] [-t TARGET]
+python operator_interactive.py -f catalogs/data-v4.22.json -o OPERATOR -v VERSION [-c CHANNEL] [-t TARGET]
 ```
 
 | Flag | Required | Description |
@@ -305,15 +306,16 @@ Output: `html/<operator>/index.html`
 
 ```bash
 # latest version, crossing channels as needed
-python operator_interactive.py -f data.json -o loki-operator -v 6.0.0
-#   6.0.0 -> 6.2.12 (stable-6.2) -> 6.6.0 (stable-6.6)
+python operator_interactive.py -f catalogs/data-v4.22.json -o loki-operator -v 6.0.0
+#   6.0.0 -> 6.5.0 (stable-6.5) -> 6.6.0 (stable-6.6)
 
 # stay inside one channel
-python operator_interactive.py -f data.json -o loki-operator -v 6.2.9 -c stable-6.2
-#   6.2.9 -> 6.2.12
+python operator_interactive.py -f catalogs/data-v4.22.json -o loki-operator -v 6.5.0 -c stable-6.5
+#   6.5.0 -> 6.5.2
 
 # target a specific version
-python operator_interactive.py -f data.json -o compliance-operator -v 0.1.32 -t 1.9.2
+python operator_interactive.py -f catalogs/data-v4.22.json -o compliance-operator -v 0.1.32 -t 1.9.2
+#   0.1.32 -> 1.7.0 -> 1.9.2
 ```
 
 Graph edges come from three sources: START via `skipRange`, the `replaces` chain
@@ -333,6 +335,7 @@ catalog_fetch.py          pulls catalogs from catalog index images
 mirror_plan.py            catalog mirroring check and oc-mirror configuration
 operator_interactive.py   single-catalog analyzer
 examples/catalog_mirror_check.json  input template
+catalogs/data-v4.22.json  example catalog, format of a pulled catalog
 requirements.txt
 ```
 
