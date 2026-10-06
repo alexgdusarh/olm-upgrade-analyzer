@@ -259,12 +259,20 @@ output/
 ```
 
 The cluster summary has one column per catalog and lists the catalogs to
-mirror. A column an operator is not upgraded from shows what the metadata of
-the bundle it is on by then says: its `maxOpenShiftVersion` ("supports 4.18 to
-4.19"), or a warning when the bundle declares none or its metadata is not
-available (hand-supplied catalogs). The operator's notes carry the same
-warning. When the input has no `max_ocp_version`, the installed bundle's value
-from the pulled catalog is used; the per-operator report has one row group per catalog the operator is
+mirror. A column an operator is not upgraded from validates the bundle it is
+on by then, in this order:
+
+1. its metadata declares `maxOpenShiftVersion`: "supports 4.18 to 4.21"
+2. no max declared, but that catalog ships the same channel and version: it
+   works there, "✓ no action" (a newer version of the channel is noted)
+3. not shipped, but a newer version of its channel is: the upgrade is shown
+4. none of these: a ⚠ warning, also added to the operator's notes; likewise
+   when no bundle metadata is available (hand-supplied catalogs) or the
+   operator is not found in its catalog image
+
+When the input has no `max_ocp_version`, the installed bundle's value from the
+pulled catalog is used. The plan JSON carries the result per operator as
+`columns`; the per-operator report has one row group per catalog the operator is
 upgraded from — info table, graph, steps.
 
 A shared catalog only grows: a cluster needing packages it lacks pulls it

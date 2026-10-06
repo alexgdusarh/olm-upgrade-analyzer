@@ -171,11 +171,14 @@ catalogs a disconnected cluster must mirror.
   version from that release's catalog, so the intermediate catalog is required
   even when a target bundle's skipRange would allow the jump.
 - In the summary matrix, a catalog column an operator is not upgraded from
-  shows the `maxOpenShiftVersion` of the bundle it is on by then and the
-  releases that supports, instead of a dash. A bundle declaring none, or one
-  whose metadata is not available, is flagged as a warning there and in the
-  operator's notes. An empty input `max_ocp_version` falls back to the
-  installed bundle's value in the pulled catalog.
+  validates the bundle it is on by then instead of showing a dash: its
+  declared `maxOpenShiftVersion` ("supports 4.18 to X"); else, when that
+  catalog ships the same channel and version, "no action"; else the upgrade to
+  a newer version of its channel; else a warning, also in the operator's
+  notes, as when no bundle metadata is available or the operator is not found.
+  The result is in the plan JSON as `columns`. An empty input
+  `max_ocp_version` falls back to the installed bundle's value in the pulled
+  catalog.
 - Each bundle's `olm.maxOpenShiftVersion` is recorded when the catalogs are
   pulled (`packages-v<major>.<minor>.json`); catalogs pulled before are pulled
   again once.

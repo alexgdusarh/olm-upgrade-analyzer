@@ -369,16 +369,12 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
     for op in plan['operators']:
         v = op['verdict']
         by_catalog = {ph['on_ocp']: ph for ph in op['phases']}
-        # maxOpenShiftVersion of the bundle the operator is on at each column
-        top = op.get('max_ocp_version')
+        columns = op.get('columns') or {}
         cells = ""
         for ocp in ocp_path:
             ph = by_catalog.get(ocp)
-            if ph and ph['to']['version'] != ph['from']['version']:
-                top = ph['to'].get('max_ocp_version')
             if not ph:
-                cells += _no_phase_cell(top, ocp_path,
-                                        op.get('bundle_metadata', False))
+                cells += _no_phase_cell(columns.get(ocp), ocp_path)
             elif ph['status'] == 'no_action':
                 cells += '<td><span class="cell-ok">&#10003; no action</span></td>'
             else:
@@ -439,22 +435,38 @@ must be mirrored and deployed too.</div>
     return str(path)
 
 
-def _no_phase_cell(top: Optional[str], ocp_path: List[str],
-                   metadata: bool) -> str:
+def _no_phase_cell(col: Optional[Dict], ocp_path: List[str]) -> str:
     """
-    A catalog column the operator is not upgraded from: what the metadata of
-    the bundle it is on by then says about the releases it supports. When the
-    metadata does not say, it is flagged as a warning.
+    A catalog column the operator is not upgraded from, as validated by
+    column_checks: the declared maxOpenShiftVersion, else whether this
+    catalog ships the bundle or a newer one of its channel, else a warning.
     """
-    if not top and metadata:
-        return ('<td class="cell-warn">&#9888; no maxOpenShiftVersion in '
-                'metadata<div class="cell-sub">supported releases not '
-                'declared</div></td>')
-    if not top:
-        return ('<td class="cell-warn">&#9888; bundle metadata not available'
-                '<div class="cell-sub">supported releases unknown</div></td>')
-    return (f'<td class="cell-meta">metadata maxOpenShiftVersion {top}'
-            f'<div class="cell-sub">supports {ocp_path[0]} to {top}</div></td>')
+    if not col:
+        # the operator could not be identified in its catalog image
+        return ('<td class="cell-warn">&#9888; not found'
+                '<div class="cell-sub">see the operator notes</div></td>')
+    state = col['state']
+    if state == 'max':
+        top = col['max_ocp_version']
+        return (f'<td class="cell-meta">metadata maxOpenShiftVersion {top}'
+                f'<div class="cell-sub">supports {ocp_path[0]} to {top}'
+                f'</div></td>')
+    if state == 'present':
+        newer = (f'<div class="cell-sub">{col["newer"]} available</div>'
+                 if col['newer'] else '')
+        return ('<td><span class="cell-ok">&#10003; no action</span>'
+                f'<div class="cell-sub">{col["channel"]} {col["version"]} '
+                f'in this catalog</div>{newer}</td>')
+    if state == 'newer':
+        return (f'<td>{col["channel"]}<br><strong>{col["newer"]}</strong>'
+                f'<div class="cell-sub">upgrade available; {col["version"]} '
+                f'not in this catalog</div></td>')
+    if state == 'missing':
+        return ('<td class="cell-warn">&#9888; not in this catalog'
+                '<div class="cell-sub">no maxOpenShiftVersion in metadata'
+                '</div></td>')
+    return ('<td class="cell-warn">&#9888; bundle metadata not available'
+            '<div class="cell-sub">supported releases unknown</div></td>')
 
 
 def _mirror_html(plan: Dict) -> str:

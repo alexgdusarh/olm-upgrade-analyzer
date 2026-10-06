@@ -64,13 +64,27 @@
         }
       ],
       "steps": [],
-      "notes": [
-        "Warning: the installed 5.24.0 bundle declares no olm.maxOpenShiftVersion, so its support for 4.19, 4.20 is not stated in the metadata."
-      ],
+      "notes": [],
       "bundle_metadata": true,
       "goal": {
         "channel": "v5",
         "version": "5.24.0"
+      },
+      "columns": {
+        "4.18": {
+          "channel": "v5",
+          "version": "5.24.0",
+          "max_ocp_version": null,
+          "newer": null,
+          "state": "present"
+        },
+        "4.19": {
+          "channel": "v5",
+          "version": "5.24.0",
+          "max_ocp_version": null,
+          "newer": null,
+          "state": "present"
+        }
       },
       "input_name": "grafana-operator",
       "catalog_image": "registry.redhat.io/redhat/community-operator-index:v4.18",
@@ -145,13 +159,28 @@
         }
       ],
       "notes": [
-        "Warning: the installed 1.19.2 bundle declares no olm.maxOpenShiftVersion, so its support for 4.19, 4.20 is not stated in the metadata.",
         "1.19.2 (channel stable-v1) is not in the 4.20 catalog, which upgrades it to 1.20.1 (channel stable-v1.20)."
       ],
       "bundle_metadata": true,
       "goal": {
         "channel": "stable-v1.20",
         "version": "1.20.1"
+      },
+      "columns": {
+        "4.18": {
+          "channel": "stable-v1",
+          "version": "1.19.2",
+          "max_ocp_version": null,
+          "newer": null,
+          "state": "present"
+        },
+        "4.19": {
+          "channel": "stable-v1",
+          "version": "1.19.2",
+          "max_ocp_version": null,
+          "newer": "1.20.1",
+          "state": "newer"
+        }
       },
       "input_name": "openshift-cert-manager-operator",
       "catalog_image": "registry.redhat.io/redhat/redhat-operator-index:v4.18",

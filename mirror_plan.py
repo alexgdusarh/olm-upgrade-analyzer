@@ -328,16 +328,6 @@ def plan_operator(catalogs: Dict[str, Dict], ocp_path: List[str],
             result['notes'].append(
                 f"The input has no max_ocp_version; the {ver} bundle in the "
                 f"catalog declares olm.maxOpenShiftVersion {declared}.")
-        elif result['bundle_metadata']:
-            result['notes'].append(
-                f"Warning: the installed {ver} bundle declares no "
-                f"olm.maxOpenShiftVersion, so its support for "
-                f"{', '.join(ocp_path[1:])} is not stated in the metadata.")
-        else:
-            result['notes'].append(
-                f"Warning: no bundle metadata is available for '{pkg}', so "
-                f"the releases the installed {ver} bundle supports are "
-                f"unknown. Pull the catalogs instead of --catalog-dir.")
 
     too_old = _max_ocp_below(result['max_ocp_version'], target)
     if too_old:
@@ -466,6 +456,67 @@ def _critical_note(pkg, start, target, extra, current) -> str:
         note += (f" {current} is the current release: its mirror must carry "
                  f"the versions listed, not only the installed one.")
     return note
+
+
+def column_checks(catalogs: Dict[str, Dict], ocp_path: List[str],
+                  result: Dict) -> Dict[str, Dict]:
+    """
+    For each catalog the operator is not upgraded from, whether the bundle it
+    is on by then is valid there, working through the path in order.
+
+        max      the bundle declares olm.maxOpenShiftVersion
+        present  no max declared, but this catalog ships the channel/version,
+                 so it works here; a newer version in the channel is noted
+        newer    not shipped here, but a newer version in its channel is: the
+                 upgrade is shown
+        missing  neither, and the metadata declares no max: a warning
+        unknown  neither, and no bundle metadata is available: a warning
+
+    Also adds a warning note naming the releases left unvalidated.
+    """
+    pkg = result['operator']
+    by_catalog = {ph['on_ocp']: ph for ph in result['phases']}
+    inp = result['input']
+    chan = inp.get('resolved_channel', inp['channel'])
+    ver = inp.get('resolved_version', inp['version'])
+    top = result.get('max_ocp_version') or None
+    columns = {}
+    for ocp in ocp_path:
+        ph = by_catalog.get(ocp)
+        if ph:
+            if ph['to']['version'] != ph['from']['version']:
+                top = ph['to'].get('max_ocp_version')
+            chan, ver = ph['to']['channel'], ph['to']['version']
+            continue
+        versions = catalogs[ocp].get(pkg, {}).get(chan, {})
+        newer = [v for v in versions
+                 if version_sort_key(v) > version_sort_key(ver)]
+        col = {'channel': chan, 'version': ver, 'max_ocp_version': top,
+               'newer': max(newer, key=version_sort_key) if newer else None}
+        if top:
+            col['state'] = 'max'
+        elif ver in versions:
+            col['state'] = 'present'
+        elif newer:
+            col['state'] = 'newer'
+        else:
+            col['state'] = ('missing' if result.get('bundle_metadata')
+                            else 'unknown')
+        columns[ocp] = col
+
+    unvalidated = [o for o, c in columns.items()
+                   if c['state'] in ('missing', 'unknown')]
+    if unvalidated:
+        why = ("the bundle declares no olm.maxOpenShiftVersion"
+               if result.get('bundle_metadata')
+               else "no bundle metadata is available (pull the catalogs "
+                    "instead of --catalog-dir)")
+        result['notes'].append(
+            f"Warning: {why}, and neither the bundle nor a newer version of "
+            f"its channel is in the {' and '.join(unvalidated)} "
+            f"catalog{'s' if len(unvalidated) > 1 else ''}.")
+    result['columns'] = columns
+    return columns
 
 
 def mirror_sets(result: Dict) -> Dict[str, Dict[str, List[str]]]:
