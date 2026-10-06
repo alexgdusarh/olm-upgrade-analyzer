@@ -30,8 +30,8 @@ mirror, and writes the oc-mirror configuration for them.
 # catalogs pulled from the cluster's catalog images at run time
 python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json
 
-# catalogs already on disk
-python ocp_upgrade_planner.py -i cluster.json --catalog-dir ./catalogs
+# catalogs already on disk, data-v<major>.<minor>.json
+python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json --catalog-dir ./catalogs
 ```
 
 ## Input: catalog mirror check
@@ -59,12 +59,19 @@ Operators are grouped by the catalog index image they were installed from.
 }
 ```
 
-| Field | Notes |
-|-------|-------|
-| `cluster.ocp_path` | Optional. When given it must match the path derived from `current`, `target` and `channel` |
-| `pull_image` | Catalog index image, at its mirror location if the cluster redirects it. Must carry a `:v<major>.<minor>` tag |
-| `main` | `false` marks a dependency installed by another operator. It is not planned, but is kept in the oc-mirror configuration |
-| `max_ocp_version` | The installed bundle's `olm.maxOpenShiftVersion`. A value below the target is reported |
+| Field | Required | Notes |
+|-------|----------|-------|
+| `cluster.current` | yes | OCP release the cluster is on now; the patch level is ignored |
+| `cluster.target` | yes | OCP release to reach |
+| `cluster.channel` | no | `eus` or anything else (`stable`, `fast`, ...). Default `stable` |
+| `cluster.ocp_path` | no | When given it must match the path derived from `current`, `target` and `channel` |
+| `operators[].pull_image` | yes | Catalog index image, at its mirror location if the cluster redirects it. Must carry a `:v<major>.<minor>` tag |
+| `packages[].name` | yes | OLM **package** name, as it appears in the catalog |
+| `packages[].channel` | yes | Subscription channel currently in use |
+| `packages[].version` | yes | Version currently installed |
+| `packages[].main` | no | `false` marks a dependency installed by another operator. It is not planned, but is kept in the oc-mirror configuration. Default `true` |
+| `packages[].max_ocp_version` | no | The installed bundle's `olm.maxOpenShiftVersion`. A value below the target is reported |
+| `packages[].required_by` | no | Operators that depend on this one; shown in the oc-mirror configuration |
 
 ### Pulling the catalogs
 
@@ -107,32 +114,7 @@ through. Dependencies (`main: false`) are added at the head of their channel.
 Where the package's default channel is not one of the mirrored channels,
 `defaultChannel` is set, as oc-mirror requires.
 
-## Input: operator list
-
-JSON, from a file (`-i`) or stdin.
-
-```json
-{
-  "cluster": {
-    "current": "4.18",
-    "target":  "4.20",
-    "channel": "eus"
-  },
-  "operators": [
-    { "name": "odf-operator",  "channel": "stable-4.18", "version": "4.18.3" },
-    { "name": "loki-operator", "channel": "stable-6.1",  "version": "6.1.0"  }
-  ]
-}
-```
-
-| Field | Required | Notes |
-|-------|----------|-------|
-| `cluster.current` | yes | OCP release the cluster is on now |
-| `cluster.target` | yes | OCP release to reach |
-| `cluster.channel` | no | `eus` or anything else (`stable`, `fast`, ...). Default `stable` |
-| `operators[].name` | yes | OLM **package** name, as it appears in the catalog |
-| `operators[].channel` | yes | Subscription channel currently in use |
-| `operators[].version` | yes | Version currently installed |
+### Matching against the catalogs
 
 Names and versions are matched leniently against the catalogs, since a
 subscription rarely records them exactly as the catalog does. A leading `v` is
@@ -167,7 +149,7 @@ A mismatch is rejected rather than guessed:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-i`, `--input` | stdin | Input JSON file |
-| `--catalog-dir` | auto | Directory holding the catalogs. Falls back to `OCP_CATALOG_DIR`, then discovery. With a mirror check input, skips pulling and uses this directory for every catalog image |
+| `--catalog-dir` | — | Use hand-supplied catalogs from this directory for every catalog image instead of pulling them |
 | `--fetch-dir` | `<output-dir>/catalogs` | Where pulled catalogs are kept |
 | `--refresh` | off | Pull catalogs again even if a previous pull covers the packages |
 | `-a`, `--authfile` | pull secret | Registry credentials for pulling catalogs |
@@ -181,44 +163,11 @@ A mismatch is rejected rather than guessed:
 
 ## Catalogs
 
-Named `data-v<major>.<minor>.json`, one per OCP release. Either layout works:
-
-```
-project/                      project/
-  cluster.json                  cluster.json
-  data/                         data-v4_18.json
-    data-v4_18.json             data-v4_19.json
-    data-v4_19.json             data-v4_20.json
-    data-v4_20.json
-```
-
-Catalogs are usually kept outside the project that consumes them, so they are
-looked for in this order:
-
-1. `--catalog-dir`
-2. the `OCP_CATALOG_DIR` environment variable
-3. a conventional catalog directory — `data/`, `catalogs/`, `catalog/`,
-   `data-catalogs/`, `ocp-catalogs/` — beside the input file, then beside the
-   current directory, then walking up their parents
-4. a bounded recursive scan below the input file's directory and the current
-   directory
-
-So a layout like this needs no flag at all:
-
-```
-/home/you/
-  ocp-operator-upgrade/    <- run from here
-    cluster.json
-  catalogs/                <- found by the parent walk
-    data-v4_18.json
-    ...
-```
-
-For a fixed location, set it once:
-
-```bash
-export OCP_CATALOG_DIR=/srv/ocp/catalogs
-```
+Named `data-v<major>.<minor>.json`, one per OCP release, holding the
+`olm.channel` objects of an OLM file-based catalog. They are normally pulled at
+run time into `<fetch-dir>/<image>/`. To work offline, point `--catalog-dir` at
+a directory of them instead; the underscore form `data-v4_18.json` is also
+accepted there.
 
 Only releases on the path are read. A 4.18 to 4.20 EUS run opens 4.18, 4.19 and
 4.20 and ignores any other catalogs sitting there.

@@ -32,7 +32,6 @@ Objective, in order:
 """
 
 import json
-import os
 import re
 from collections import deque
 from pathlib import Path
@@ -264,105 +263,15 @@ def load_catalog(path: str, allow_empty: bool = False
     return catalog
 
 
-CATALOG_ENV_VAR = 'OCP_CATALOG_DIR'
-CATALOG_DIR_NAMES = ('data', 'catalogs', 'catalog', 'data-catalogs', 'ocp-catalogs')
-CATALOG_SEARCH_DEPTH = 3
-
-
-def discover_catalog_dir(explicit: Optional[str] = None,
-                         search_from: Optional[str] = None) -> str:
-    """
-    Locate the directory holding the data-v<major>.<minor>.json catalogs.
-
-    Catalogs are commonly kept outside the project that consumes them, so the
-    search is deliberately wide. In order of precedence:
-
-        1. --catalog-dir
-        2. the OCP_CATALOG_DIR environment variable
-        3. a conventional catalog directory beside the input file, then beside
-           the current directory, then walking up their parents
-        4. a bounded recursive scan below the input file's directory and the
-           current directory
-
-    The first location holding at least one catalog wins.
-    """
-    if explicit:
-        path = Path(explicit).expanduser()
-        if not path.is_dir():
-            raise FileNotFoundError(f"Catalog directory not found: {explicit}")
-        if not find_catalogs(str(path)):
-            raise FileNotFoundError(
-                f"No data-v<major>.<minor>.json files in {path}")
-        return str(path)
-
-    env = os.environ.get(CATALOG_ENV_VAR)
-    if env:
-        path = Path(env).expanduser()
-        if not path.is_dir():
-            raise FileNotFoundError(
-                f"{CATALOG_ENV_VAR} points at {env}, which is not a directory")
-        if not find_catalogs(str(path)):
-            raise FileNotFoundError(
-                f"{CATALOG_ENV_VAR} points at {path}, which holds no "
-                f"data-v<major>.<minor>.json files")
-        return str(path)
-
-    roots = []
-    if search_from:
-        roots.append(Path(search_from).expanduser().resolve())
-    cwd = Path.cwd().resolve()
-    if cwd not in roots:
-        roots.append(cwd)
-
-    tried = []
-
-    # conventional locations, walking up from each root
-    for root in roots:
-        for level, base in enumerate([root] + list(root.parents)):
-            if level > CATALOG_SEARCH_DEPTH:
-                break
-            for name in CATALOG_DIR_NAMES:
-                candidate = base / name
-                tried.append(candidate)
-                if candidate.is_dir() and find_catalogs(str(candidate)):
-                    return str(candidate)
-            tried.append(base)
-            if find_catalogs(str(base)):
-                return str(base)
-
-    # bounded recursive scan as a last resort
-    for root in roots:
-        found = _scan_for_catalogs(root, CATALOG_SEARCH_DEPTH)
-        if found:
-            return found
-
-    hint = (f"Set {CATALOG_ENV_VAR} or pass --catalog-dir to point at them.")
-    sample = "\n  ".join(str(p) for p in list(dict.fromkeys(tried))[:12])
-    raise FileNotFoundError(
-        "Could not find any data-v<major>.<minor>.json catalogs.\n"
-        f"Looked in:\n  {sample}\n"
-        f"...and scanned {CATALOG_SEARCH_DEPTH} levels below "
-        f"{' and '.join(str(r) for r in roots)}.\n{hint}")
-
-
-def _scan_for_catalogs(root: Path, max_depth: int) -> Optional[str]:
-    """Walk below root looking for a directory holding catalogs."""
-    root = Path(root)
-    if not root.is_dir():
-        return None
-    base_depth = len(root.parts)
-    skip = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'html'}
-    for dirpath, dirnames, filenames in os.walk(root):
-        current = Path(dirpath)
-        depth = len(current.parts) - base_depth
-        if any(CATALOG_PATTERN.match(f) for f in filenames):
-            return str(current)
-        if depth >= max_depth:
-            dirnames[:] = []
-            continue
-        dirnames[:] = [d for d in dirnames if d not in skip
-                       and not d.startswith('.')]
-    return None
+def check_catalog_dir(catalog_dir: str) -> str:
+    """Validate a directory of hand-supplied data-v<major>.<minor>.json files."""
+    path = Path(catalog_dir).expanduser()
+    if not path.is_dir():
+        raise FileNotFoundError(f"Catalog directory not found: {catalog_dir}")
+    if not find_catalogs(str(path)):
+        raise FileNotFoundError(
+            f"No data-v<major>.<minor>.json files in {path}")
+    return str(path)
 
 
 def find_catalogs(catalog_dir: str) -> Dict[str, str]:
@@ -1081,55 +990,3 @@ def _plan_floating(catalogs, ocp_path, name, current, excluded, result) -> Dict:
     result['phases'].append(final)
 
     return result
-
-
-def plan_cluster(catalog_dir: str, payload: Dict) -> Dict:
-    """Plan every operator for one cluster upgrade."""
-    cluster = payload.get('cluster') or {}
-    operators = payload.get('operators') or []
-
-    current = cluster.get('current')
-    target = cluster.get('target')
-    channel = cluster.get('channel', 'stable')
-
-    if not current or not target:
-        raise ValueError("cluster.current and cluster.target are required")
-    if not operators:
-        raise ValueError("at least one entry in 'operators' is required")
-
-    ocp_path = build_ocp_path(current, target, channel)
-    catalogs = load_catalogs(catalog_dir, ocp_path)
-
-    results = []
-    for op in operators:
-        name = op.get('name')
-        if not name:
-            raise ValueError("each operator requires a 'name'")
-        results.append(plan_operator(
-            catalogs, ocp_path, name,
-            op.get('channel', ''), op.get('version', '')))
-
-    blocking = [r['operator'] for r in results if r['blocking']]
-    review = [r['operator'] for r in results if r['verdict'] == 'manual_review']
-    upgrades = [r['operator'] for r in results
-                if r['verdict'] == 'operator_upgrade_required']
-
-    if blocking:
-        verdict = 'blocked'
-    elif review:
-        verdict = 'manual_review'
-    elif upgrades:
-        verdict = 'operator_upgrade_required'
-    else:
-        verdict = 'no_action_required'
-
-    return {
-        'cluster': {'current': current, 'target': target,
-                    'channel': channel, 'ocp_path': ocp_path},
-        'verdict': verdict,
-        'blocking_operators': blocking,
-        'manual_review_operators': review,
-        'operators_requiring_upgrade': upgrades,
-        'operators': results,
-        'catalogs': {o: catalog_filename(o) for o in ocp_path},
-    }

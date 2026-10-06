@@ -7,15 +7,13 @@ around the cluster upgrade, and writes one HTML report per operator plus a
 cluster summary. Machine-readable JSON goes to stdout.
 
     python ocp_upgrade_planner.py -i examples/catalog_mirror_check.json
-    python ocp_upgrade_planner.py -i cluster.json --catalog-dir ./catalogs
 
-Two input shapes are accepted.
-
-The catalog mirror check written by ocp_preupgrade_health_check, grouped by
-catalog index image. The catalogs are pulled from those images at run time,
-and the operators are also checked against the target catalog alone to find
-what has to be mirrored. Packages with main=false are dependencies: they are
-not planned, but are kept in the oc-mirror configuration.
+Input is the catalog mirror check written by ocp_preupgrade_health_check,
+grouped by catalog index image. The catalogs are pulled from those images at
+run time, or read from --catalog-dir, and the operators are also checked
+against the target catalog alone to find what has to be mirrored. Packages
+with main=false are dependencies: they are not planned, but are kept in the
+oc-mirror configuration.
 
     {
       "cluster": { "current": "4.18.28", "target": "4.20", "channel": "eus",
@@ -25,16 +23,6 @@ not planned, but are kept in the oc-mirror configuration.
           "packages": [ { "name": "odf-operator", "channel": "stable-4.18",
                           "version": "4.18.3", "max_ocp_version": "",
                           "main": true, "required_by": [] } ] }
-      ]
-    }
-
-A flat operator list, planned against catalogs that are already on disk:
-
-    {
-      "cluster": { "current": "4.18", "target": "4.20", "channel": "eus" },
-      "operators": [
-        { "name": "odf-operator",  "channel": "stable-4.18", "version": "4.18.3" },
-        { "name": "loki-operator", "channel": "stable-6.1",  "version": "6.1.0"  }
       ]
     }
 
@@ -64,7 +52,7 @@ from mirror_plan import (
 )
 from ocp_planner import (
     build_ocp_path,
-    discover_catalog_dir,
+    check_catalog_dir,
     load_catalogs,
     plan_operator,
     catalog_filename,
@@ -80,7 +68,7 @@ EXIT_CRITICAL = 4
 
 def parse_payload(payload):
     """
-    Return (cluster, groups) for either input shape.
+    Return (cluster, groups) from a catalog mirror check.
 
     Each group is {'pull_image': str or None, 'operators': [...]}, where every
     operator carries name, channel, version, max_ocp_version, main and
@@ -91,25 +79,21 @@ def parse_payload(payload):
     if not entries:
         raise ValueError("at least one entry in 'operators' is required")
 
-    if any('pull_image' in e for e in entries):
-        groups = []
-        for e in entries:
-            image = e.get('pull_image')
-            if not image:
-                raise ValueError("each operators[] entry requires 'pull_image'")
-            ops = [{'name': p.get('name'),
-                    'channel': p.get('channel', ''),
-                    'version': p.get('version', ''),
-                    'max_ocp_version': p.get('max_ocp_version') or '',
-                    'main': p.get('main', True),
-                    'required_by': p.get('required_by') or []}
-                   for p in e.get('packages') or []]
-            groups.append({'pull_image': image, 'operators': ops})
-    else:
-        groups = [{'pull_image': None, 'operators': [
-            {'name': o.get('name'), 'channel': o.get('channel', ''),
-             'version': o.get('version', ''), 'max_ocp_version': '',
-             'main': True, 'required_by': []} for o in entries]}]
+    groups = []
+    for e in entries:
+        image = e.get('pull_image')
+        if not image:
+            raise ValueError(
+                "each operators[] entry requires 'pull_image' and 'packages' "
+                "(catalog mirror check format from ocp_preupgrade_health_check)")
+        ops = [{'name': p.get('name'),
+                'channel': p.get('channel', ''),
+                'version': p.get('version', ''),
+                'max_ocp_version': p.get('max_ocp_version') or '',
+                'main': p.get('main', True),
+                'required_by': p.get('required_by') or []}
+               for p in e.get('packages') or []]
+        groups.append({'pull_image': image, 'operators': ops})
 
     for g in groups:
         for op in g['operators']:
@@ -193,8 +177,8 @@ def _mirror_group(catalogs, ocp_path, group, results, catalog_dir):
 def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
         fetched=False):
     """
-    catalog_dirs maps each group's pull_image (None for a flat operator list)
-    to the directory holding its catalogs. fetched marks catalogs pulled at
+    catalog_dirs maps each group's pull_image to the directory holding its
+    catalogs. fetched marks catalogs pulled at
     run time, which are empty when the image carries none of the packages.
     """
     cluster, groups = parse_payload(payload)
@@ -212,8 +196,8 @@ def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
     for group in groups:
         catalog_dir = catalog_dirs[group['pull_image']]
         if not quiet:
-            label = group['pull_image'] or 'operators'
-            print(f"{label}: {len(ocp_path)} catalog(s) from {catalog_dir}",
+            print(f"{group['pull_image']}: {len(ocp_path)} catalog(s) from "
+                  f"{catalog_dir}",
                   file=sys.stderr)
         catalogs = load_catalogs(catalog_dir, ocp_path, allow_empty=fetched)
 
@@ -224,8 +208,7 @@ def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
             res = plan_operator(catalogs, ocp_path, op['name'],
                                 op['channel'], op['version'])
             res['input_name'] = op['name']
-            if group['pull_image']:
-                res['catalog_image'] = group['pull_image']
+            res['catalog_image'] = group['pull_image']
             group_results.append(res)
             if not quiet:
                 pre = sum(p['hops'] for p in res['phases']
@@ -233,16 +216,15 @@ def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
                 print(f"  {op['name']:42} {res['verdict']:28} "
                       f"{pre} upgrade(s) before cluster move", file=sys.stderr)
 
-        if group['pull_image']:
-            g_checks, g_entries = _mirror_group(
-                catalogs, ocp_path, group, group_results, catalog_dir)
-            checks += g_checks
-            imageset += g_entries
-            if not quiet:
-                for c in g_checks:
-                    print(f"  {c['operator']:42} mirror {c['status']:10} "
-                          f"catalogs {', '.join(c['catalogs']) or '-'}",
-                          file=sys.stderr)
+        g_checks, g_entries = _mirror_group(
+            catalogs, ocp_path, group, group_results, catalog_dir)
+        checks += g_checks
+        imageset += g_entries
+        if not quiet:
+            for c in g_checks:
+                print(f"  {c['operator']:42} mirror {c['status']:10} "
+                      f"catalogs {', '.join(c['catalogs']) or '-'}",
+                      file=sys.stderr)
 
         for res in group_results:
             res['html'] = generate_operator_report(
@@ -273,22 +255,21 @@ def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
         'operators': results,
     }
 
-    if checks:
-        critical = [c['operator'] for c in checks if c['status'] != OK]
-        to_mirror = {}
-        for entry in imageset:
-            ocp = entry['catalog'].rsplit(':v', 1)[-1]
-            to_mirror.setdefault(ocp, []).append(entry['catalog'])
-        plan['mirror'] = {
-            'verdict': CRITICAL if critical else OK,
-            'critical_operators': critical,
-            'catalogs_to_mirror': to_mirror,
-            'operators': checks,
-        }
-        path = Path(imageset_out or Path(output_dir) / 'imageset-config.yaml')
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(build_imageset(imageset))
-        plan['mirror']['imageset_config'] = str(path)
+    critical = [c['operator'] for c in checks if c['status'] != OK]
+    to_mirror = {}
+    for entry in imageset:
+        ocp = entry['catalog'].rsplit(':v', 1)[-1]
+        to_mirror.setdefault(ocp, []).append(entry['catalog'])
+    plan['mirror'] = {
+        'verdict': CRITICAL if critical else OK,
+        'critical_operators': critical,
+        'catalogs_to_mirror': to_mirror,
+        'operators': checks,
+    }
+    path = Path(imageset_out or Path(output_dir) / 'imageset-config.yaml')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(build_imageset(imageset))
+    plan['mirror']['imageset_config'] = str(path)
 
     plan['summary_html'] = generate_summary_report(plan, output_dir)
     return plan
@@ -302,13 +283,13 @@ def main():
 Examples:
   %(prog)s -i outputs/catalog_mirror_check.json
   %(prog)s -i outputs/catalog_mirror_check.json --authfile ~/pull-secret.json
-  %(prog)s -i cluster.json --catalog-dir ./catalogs -j plan.json
+  %(prog)s -i outputs/catalog_mirror_check.json --catalog-dir ./catalogs
 """)
     ap.add_argument('-i', '--input', help='Input JSON file (default: stdin)')
     ap.add_argument('--catalog-dir',
                     help='Use the data-v<major>.<minor>.json catalogs in this '
-                         'directory instead of pulling them. Required for a '
-                         'flat operator list unless they can be discovered.')
+                         'directory for every catalog image instead of '
+                         'pulling them')
     ap.add_argument('--fetch-dir',
                     help='Where pulled catalogs are kept, one subdirectory per '
                          'catalog index (default: <output-dir>/catalogs)')
@@ -353,15 +334,13 @@ Examples:
 
     try:
         cluster, groups = parse_payload(payload)
-        images = [g['pull_image'] for g in groups]
 
-        fetched = not (args.catalog_dir or images == [None])
+        fetched = not args.catalog_dir
         if not fetched:
-            search_from = str(Path(args.input).parent) if args.input else None
-            catalog_dir = discover_catalog_dir(args.catalog_dir, search_from)
+            catalog_dir = check_catalog_dir(args.catalog_dir)
             if not args.quiet:
                 print(f"Catalogs: {catalog_dir}", file=sys.stderr)
-            catalog_dirs = {img: catalog_dir for img in images}
+            catalog_dirs = {g['pull_image']: catalog_dir for g in groups}
         else:
             _, _, _, ocp_path = resolve_ocp_path(cluster)
             fetch_dir = args.fetch_dir or str(Path(args.output_dir) / 'catalogs')
@@ -388,13 +367,12 @@ Examples:
 
     if not args.quiet:
         print(f"\nSummary: {plan['summary_html']}", file=sys.stderr)
-        if 'mirror' in plan:
-            print(f"oc-mirror: {plan['mirror']['imageset_config']}",
-                  file=sys.stderr)
+        print(f"oc-mirror: {plan['mirror']['imageset_config']}",
+              file=sys.stderr)
 
     if plan['verdict'] == 'blocked':
         return EXIT_BLOCKED
-    if plan.get('mirror', {}).get('verdict') == CRITICAL:
+    if plan['mirror']['verdict'] == CRITICAL:
         return EXIT_CRITICAL
     if plan['verdict'] == 'manual_review':
         return EXIT_REVIEW

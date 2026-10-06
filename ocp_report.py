@@ -426,7 +426,7 @@ landed there.</div>
   {rows}
 </table>"""
 
-    body += _mirror_html(plan.get('mirror'))
+    body += _mirror_html(plan['mirror'])
 
     out = Path(output_dir) / 'html'
     out.mkdir(parents=True, exist_ok=True)
@@ -438,11 +438,8 @@ landed there.</div>
 MIRROR_CLASS = {'ok': 'ok', 'critical': 'bad', 'unresolved': 'bad'}
 
 
-def _mirror_html(mirror: Optional[Dict]) -> str:
+def _mirror_html(mirror: Dict) -> str:
     """Which catalogs must be mirrored, and why, for a disconnected cluster."""
-    if not mirror:
-        return ""
-
     catalogs = "".join(
         f'<tr><td class="label">OCP {ocp}</td><td>'
         + "<br>".join(f"<code>{img}</code>" for img in images) + '</td></tr>'

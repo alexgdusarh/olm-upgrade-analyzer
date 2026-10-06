@@ -141,6 +141,14 @@ catalogs a disconnected cluster must mirror are worked out.
   JSON, and exit code 4 when an intermediate catalog is needed.
 - An installed bundle whose `max_ocp_version` is below the target is reported.
 
+### Removed
+- The flat operator-list input (`name`/`channel`/`version` per operator). The
+  catalog mirror check is the only input format.
+- Catalog auto-discovery (`OCP_CATALOG_DIR`, conventional directory names, the
+  parent walk and recursive scan). Catalogs are pulled, or read from an explicit
+  `--catalog-dir`.
+- `plan_cluster()` in `ocp_planner.py`, the flat-input entry point.
+
 ### Changed
 - `skips` is now an upgrade edge alongside `replaces` and `skipRange`.
 - The example input is now `examples/catalog_mirror_check.json`, replacing
