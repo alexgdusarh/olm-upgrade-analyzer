@@ -46,6 +46,22 @@ table.ops th { vertical-align:top; }
 .cell-none { color:#bbb; text-align:center; }
 .cell-meta { color:#555; font-size:12.5px; }
 .cell-opt { color:#3f51b5; }
+.vendor-row td { background:#fafbff; padding:6px 14px 16px; }
+.vendor-box { border:1px solid #d6dbf5; border-radius:8px; padding:12px 14px;
+              background:#fff; }
+.vendor-head { font-size:14px; color:#333; margin-bottom:6px; }
+.vendor-advice { font-size:13px; color:#e05252; font-weight:600; margin:4px 0 8px; }
+table.vendor-table { width:100%; border-collapse:collapse; margin-top:6px; }
+table.vendor-table th { background:#eef0fb; color:#333; font-size:12px; text-align:left;
+                        padding:7px 10px; }
+table.vendor-table td { font-size:13px; padding:6px 10px; border-bottom:1px solid #eee; }
+table.vendor-table tr.vt-installed td { background:#f3f3f3; }
+table.vendor-table tr.vt-recommended td { background:#eef8ee; }
+.vt-ok { color:#2e7d32; } .vt-bad { color:#e05252; }
+.cell-vendor { font-size:11.5px; margin-top:5px; padding-top:4px;
+               border-top:1px dashed #ddd; }
+.cell-vendor.ok { color:#4caf50; } .cell-vendor.bad { color:#e05252; }
+.cell-vendor.warn { color:#8a6100; }
 .cell-warn { color:#8a6100; background:#fff8e1; font-size:12.5px; }
 .cell-rule { border:none; border-top:1px dashed #ddd; margin:8px 0; }
 .legend { font-size:13px; color:#666; background:#f7f7fa; border-left:3px solid #ccd;
@@ -63,6 +79,7 @@ code { background:#eef; padding:1px 5px; border-radius:3px; font-size:13px; }
   <tr><td class="label">Installed channel</td><td>stable-v1</td></tr>
   <tr><td class="label">Installed version</td><td><strong>1.19.2</strong></td></tr>
   <tr><td class="label">Max OCP version</td><td>&mdash;</td></tr>
+  
   <tr><td class="label">Catalogs needed</td><td>4.20</td></tr>
   <tr><td class="label">Operator upgrades</td><td>2</td></tr>
 </table><h2 style="margin-top:30px">Catalogs</h2><div class="phase">

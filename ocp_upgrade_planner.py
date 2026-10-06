@@ -68,12 +68,16 @@ from mirror_plan import (
     plan_operator,
 )
 from ocp_planner import (
+    version_sort_key as _version_key,
     build_ocp_path,
     check_catalog_dir,
     load_catalogs,
     catalog_filename,
 )
 from ocp_report import generate_operator_report, generate_summary_report
+from vendor_constraints import BLOCKED as VENDOR_BLOCKED
+from vendor_constraints import evaluate as evaluate_vendor
+from vendor_constraints import load_constraints
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -107,7 +111,8 @@ def parse_payload(payload):
                 'version': p.get('version', ''),
                 'max_ocp_version': p.get('max_ocp_version') or '',
                 'main': p.get('main', True),
-                'required_by': p.get('required_by') or []}
+                'required_by': p.get('required_by') or [],
+                'component_versions': p.get('component_versions') or {}}
                for p in e.get('packages') or []]
         groups.append({'pull_image': image, 'operators': ops})
 
@@ -190,8 +195,53 @@ def _imageset_entries(catalogs, ocp_path, group, results, catalog_dir):
     return entries
 
 
+def _apply_vendor(res, op, constraints, component_overrides, cluster_info,
+                  catalogs):
+    """
+    Check an operator against its vendor support matrix, if it has one. A
+    blocked result makes the operator block the cluster upgrade.
+    """
+    constraint = (constraints.get(res['operator'])
+                  or constraints.get(op['name']))
+    if not constraint:
+        return
+    comp = constraint['component']
+    version = (component_overrides.get(comp)
+               or op['component_versions'].get(comp))
+    inp = res['input']
+    vendor = evaluate_vendor(
+        constraint, cluster_info['ocp_path'], cluster_info['current'],
+        cluster_info['target'], version,
+        inp.get('resolved_version', inp['version']))
+    res['vendor'] = vendor
+    res['notes'] += vendor['notes']
+
+    # Where the operator version the vendor requires can come from.
+    need = (vendor.get('recommended') or {}).get('operator_min')
+    installed = inp.get('resolved_version', inp['version'])
+    if need and _version_key(installed) < _version_key(need):
+        current = cluster_info['ocp_path'][0]
+        offered = sorted(
+            ((v, c) for c, vs in catalogs[current].get(res['operator'], {}).items()
+             for v in vs if _version_key(v) >= _version_key(need)),
+            # the subscribed channel first, then the lowest version
+            key=lambda vc: (vc[1] != inp.get('resolved_channel', inp['channel']),
+                            _version_key(vc[0])))
+        if offered:
+            v, c = offered[0]
+            res['notes'].append(
+                f"The current {current} catalog carries operator {v} (channel "
+                f"{c}), the lowest meeting {need}.")
+        else:
+            res['notes'].append(
+                f"The current {current} catalog has no operator {need} or "
+                f"later; it must be mirrored before the cluster upgrade.")
+    if vendor['status'] == VENDOR_BLOCKED:
+        res.update(verdict=BLOCKED, blocking=True)
+
+
 def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
-        fetched=False):
+        fetched=False, constraints=None, component_overrides=None):
     """
     catalog_dirs maps each group's pull_image to the directory holding its
     catalogs. fetched marks catalogs pulled at run time, which are empty when
@@ -226,6 +276,8 @@ def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
                     bundle_max, ocp_path, res['operator'], ph['to']['version'])
             if res['phases']:
                 column_checks(catalogs, ocp_path, res)
+            _apply_vendor(res, op, constraints or {},
+                          component_overrides or {}, cluster_info, catalogs)
             build_matrix(ocp_path, res)
             res['input_name'] = op['name']
             res['catalog_image'] = group['pull_image']
@@ -312,6 +364,14 @@ Examples:
     ap.add_argument('--filter-by-os', default='linux/amd64',
                     help='Platform of the catalog image to pull '
                          '(default: linux/amd64)')
+    ap.add_argument('--constraints',
+                    help='Vendor support matrices (default: '
+                         'constraints/vendor-support.json beside this tool)')
+    ap.add_argument('--component-version', action='append', default=[],
+                    metavar='NAME=VERSION',
+                    help='Version of a component a vendor matrix is keyed '
+                         'on, e.g. portworx-enterprise=3.6.0; overrides the '
+                         'input\'s component_versions. Repeatable')
     ap.add_argument('--jobs', type=int, default=4,
                     help='Catalog pulls to run at once (default: 4)')
     ap.add_argument('--insecure-registry', action='store_true',
@@ -367,8 +427,16 @@ Examples:
                 args.filter_by_os, args.insecure_registry, args.quiet,
                 args.jobs)
 
+        overrides = {}
+        for item in args.component_version:
+            name, sep, ver = item.partition('=')
+            if not sep or not name or not ver:
+                raise ValueError(f"--component-version expects NAME=VERSION, "
+                                 f"got {item!r}")
+            overrides[name.strip()] = ver.strip()
         plan = run(payload, catalog_dirs, str(cluster_dir), args.quiet,
-                   args.imageset_out, fetched)
+                   args.imageset_out, fetched,
+                   load_constraints(args.constraints), overrides)
     except (ValueError, FileNotFoundError, FetchError) as e:
         print(f"{e}", file=sys.stderr)
         return EXIT_ERROR

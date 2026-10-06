@@ -599,6 +599,16 @@ def build_matrix(ocp_path: List[str], result: Dict) -> List[Dict]:
         else:
             cell = {'kind': 'not_found'}
         cell['ocp'] = ocp
+        vendor = result.get('vendor')
+        if vendor:
+            cell['vendor'] = dict(vendor['releases'][ocp],
+                                  label=vendor['label'],
+                                  installed=vendor['installed'],
+                                  status=vendor['status'])
+            if ocp == ocp_path[0] and vendor.get('operator_ok') is False:
+                cell['vendor']['operator_short'] = {
+                    'installed': vendor['operator_version'],
+                    'required': vendor['operator_min']}
         cells.append(cell)
 
     reached = {}  # (channel, version) -> lowest release showing it
@@ -610,8 +620,11 @@ def build_matrix(ocp_path: List[str], result: Dict) -> List[Dict]:
             reached[key] = cell['ocp']
             continue
         ocp, lower = cell['ocp'], reached[key]
+        vendor = cell.get('vendor')
         cell.clear()
         cell.update(kind='no_action', upgraded_on=lower, ocp=ocp)
+        if vendor:
+            cell['vendor'] = vendor
         ph = by_catalog.get(ocp)
         if ph and not ph.get('done_on'):
             ph['done_on'] = lower
