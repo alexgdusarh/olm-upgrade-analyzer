@@ -212,6 +212,10 @@ code { background:#eef; padding:1px 5px; border-radius:3px; font-size:13px; }
 """
 
 
+def _cluster_label(cluster: Dict) -> str:
+    return f"{cluster['name']} " if cluster.get('name') else ""
+
+
 def _page(title: str, body: str) -> str:
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
@@ -293,7 +297,7 @@ def generate_operator_report(catalogs: Dict[str, Dict], result: Dict,
     inp = result['input']
 
     header = f"""<h1>{pkg}</h1>
-<div class="subtitle">Operator upgrade plan for the OCP
+<div class="subtitle">Operator upgrade plan for the {_cluster_label(cluster)}OCP
 {cluster['current']} &rarr; {cluster['target']} ({cluster['channel']}) cluster upgrade</div>
 <table class="info">
   <tr><td class="label">Verdict</td><td>{badge}{pinned}</td></tr>
@@ -380,7 +384,8 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
                 + "".join(f'<span class="badge {cls}">{n}</span>' for n in names)
                 + '</td></tr>')
 
-    body = f"""<h1>Cluster Operator Upgrade Plan</h1>
+    body = f"""<h1>Cluster Operator Upgrade Plan{
+        f' &mdash; {cluster["name"]}' if cluster.get('name') else ''}</h1>
 <div class="subtitle">OCP {cluster['current']} &rarr; {cluster['target']}
 ({cluster['channel']} channel)</div>
 <table class="info">
@@ -409,7 +414,8 @@ must be mirrored and deployed too.</div>
     out = Path(output_dir) / 'html'
     out.mkdir(parents=True, exist_ok=True)
     path = out / 'index.html'
-    path.write_text(_page("Cluster Operator Upgrade Plan", body))
+    path.write_text(_page(cluster.get('name') or "Cluster Operator Upgrade Plan",
+                          body))
     return str(path)
 
 

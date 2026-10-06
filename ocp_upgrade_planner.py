@@ -17,6 +17,7 @@ dependencies: they are not planned, but are kept in the oc-mirror
 configuration.
 
     {
+      "cluster_name": "ocp5",
       "cluster": { "current": "4.18.28", "target": "4.20", "channel": "eus",
                    "ocp_path": ["4.18", "4.19", "4.20"] },
       "operators": [
@@ -27,7 +28,10 @@ configuration.
       ]
     }
 
-Catalog files are named data-v<major>.<minor>.json, one per OCP release.
+The outputs - html/, imageset-config.yaml and plan.json - go to
+<output-dir>/<cluster_name>/, so many clusters can share one output directory.
+Pulled catalogs are shared between them in <output-dir>/catalogs/. Catalog
+files are named data-v<major>.<minor>.json, one per OCP release.
 
 Exit codes:
     0  no action required, or operator upgrades are required and planned
@@ -39,6 +43,7 @@ Exit codes:
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -106,6 +111,24 @@ def parse_payload(payload):
     return cluster, groups
 
 
+def cluster_name(payload):
+    """
+    The cluster's name, made safe for use as a folder name, or None.
+
+    The health check writes it as cluster_name; cluster-name is accepted too.
+    """
+    raw = payload.get('cluster_name') or payload.get('cluster-name')
+    if not raw:
+        return None
+    name = re.sub(r'[^A-Za-z0-9._-]+', '_', str(raw).strip()).strip('._')
+    if not name:
+        raise ValueError(f"cluster_name {raw!r} cannot be used as a folder name")
+    if name == 'catalogs':
+        raise ValueError("cluster_name 'catalogs' would clash with the shared "
+                         "catalog folder")
+    return name
+
+
 def resolve_ocp_path(cluster):
     current = cluster.get('current')
     target = cluster.get('target')
@@ -167,8 +190,8 @@ def run(payload, catalog_dirs, output_dir, quiet=False, imageset_out=None,
     """
     cluster, groups = parse_payload(payload)
     current, target, channel, ocp_path = resolve_ocp_path(cluster)
-    cluster_info = {'current': current, 'target': target,
-                    'channel': channel, 'ocp_path': ocp_path}
+    cluster_info = {'name': cluster_name(payload), 'current': current,
+                    'target': target, 'channel': channel, 'ocp_path': ocp_path}
 
     if not quiet:
         print(f"Cluster: OCP {current} -> {target} ({channel})", file=sys.stderr)
@@ -278,12 +301,13 @@ Examples:
     ap.add_argument('--insecure-registry', action='store_true',
                     help='Allow pulling catalogs over HTTP or with an '
                          'untrusted certificate')
-    ap.add_argument('-d', '--output-dir', default='.',
-                    help='Where to write html/ and imageset-config.yaml '
-                         '(default: .)')
+    ap.add_argument('-d', '--output-dir', default='output',
+                    help='Where to write the outputs, in a folder named after '
+                         'the cluster_name, and the shared pulled catalogs '
+                         '(default: output)')
     ap.add_argument('--imageset-out',
                     help='Where to write the oc-mirror ImageSetConfiguration '
-                         '(default: <output-dir>/imageset-config.yaml)')
+                         '(default: <output-dir>/<cluster_name>/imageset-config.yaml)')
     ap.add_argument('-j', '--json-out',
                     help='Also write the plan JSON to this file')
     ap.add_argument('-q', '--quiet', action='store_true',
@@ -305,6 +329,8 @@ Examples:
 
     try:
         cluster, groups = parse_payload(payload)
+        name = cluster_name(payload)
+        cluster_dir = Path(args.output_dir) / name if name else Path(args.output_dir)
 
         fetched = not args.catalog_dir
         if not fetched:
@@ -325,7 +351,7 @@ Examples:
                 args.filter_by_os, args.insecure_registry, args.quiet,
                 args.jobs)
 
-        plan = run(payload, catalog_dirs, args.output_dir, args.quiet,
+        plan = run(payload, catalog_dirs, str(cluster_dir), args.quiet,
                    args.imageset_out, fetched)
     except (ValueError, FileNotFoundError, FetchError) as e:
         print(f"{e}", file=sys.stderr)
@@ -333,6 +359,7 @@ Examples:
 
     out = json.dumps(plan, indent=2)
     print(out)
+    (cluster_dir / 'plan.json').write_text(out + "\n")
     if args.json_out:
         Path(args.json_out).write_text(out)
 

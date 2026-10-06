@@ -166,5 +166,11 @@ catalogs a disconnected cluster must mirror.
 - `skips` is now an upgrade edge alongside `replaces` and `skipRange`.
 - An EUS path must start on an even minor, since EUS releases are the even
   ones.
+- Outputs go to `<output-dir>/<cluster_name>/` (html, `imageset-config.yaml`
+  and `plan.json`), taking `cluster_name` (or `cluster-name`) from the input,
+  so 150+ clusters can share one output directory. `--output-dir` defaults to
+  `output`. Pulled catalogs stay shared in `<output-dir>/catalogs/`: a pull
+  adds to the packages already there, under a per-catalog lock, with atomic
+  writes, so clusters can be planned in parallel.
 - The example input is now `examples/catalog_mirror_check.json`, replacing
   `examples/cluster.json` and `cluster_operators_installed.json`.
