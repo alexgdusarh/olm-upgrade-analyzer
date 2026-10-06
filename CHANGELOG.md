@@ -174,3 +174,6 @@ catalogs a disconnected cluster must mirror.
   writes, so clusters can be planned in parallel.
 - The example input is now `examples/catalog_mirror_check.json`, replacing
   `examples/cluster.json` and `cluster_operators_installed.json`.
+- `catalogs/` keeps only `data-v4.22.json`, as an example of the catalog
+  format and for `operator_interactive.py`. `data.json` (a copy of 4.20) and
+  the 4.18 to 4.21 catalogs are removed, since catalogs are pulled at run time.

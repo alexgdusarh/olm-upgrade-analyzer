@@ -8,9 +8,9 @@ from an OLM catalog, and renders a networkx graph inside a self-contained HTML r
 Generic: works for ANY operator in the catalog. No hardcoded operators or versions.
 
 Usage:
-    python operator_interactive.py -f data.json -o loki-operator -v 6.0.0
-    python operator_interactive.py -f data.json -o loki-operator -v 6.2.9 -c stable-6.2
-    python operator_interactive.py -f data.json -o compliance-operator -v 0.1.32 -t 1.9.2
+    python operator_interactive.py -f catalogs/data-v4.22.json -o loki-operator -v 6.0.0
+    python operator_interactive.py -f catalogs/data-v4.22.json -o loki-operator -v 6.5.0 -c stable-6.5
+    python operator_interactive.py -f catalogs/data-v4.22.json -o compliance-operator -v 0.1.32 -t 1.9.2
 """
 
 import json
@@ -611,16 +611,16 @@ def main():
         epilog="""
 Examples:
   # Upgrade to the latest version across channels
-  %(prog)s -f data.json -o loki-operator -v 6.0.0
+  %(prog)s -f catalogs/data-v4.22.json -o loki-operator -v 6.0.0
 
   # Stay inside one channel
-  %(prog)s -f data.json -o loki-operator -v 6.2.9 -c stable-6.2
+  %(prog)s -f catalogs/data-v4.22.json -o loki-operator -v 6.5.0 -c stable-6.5
 
   # Target a specific version
-  %(prog)s -f data.json -o compliance-operator -v 0.1.32 -t 1.9.2
+  %(prog)s -f catalogs/data-v4.22.json -o compliance-operator -v 0.1.32 -t 1.9.2
 
   # Target a specific channel and version
-  %(prog)s -f data.json -o openshift-gitops-operator -v 1.14.1 -c gitops-1.21 -t 1.21.4
+  %(prog)s -f catalogs/data-v4.22.json -o openshift-gitops-operator -v 1.14.1 -c gitops-1.21 -t 1.21.4
 """)
     parser.add_argument('-f', '--file', required=True, help='OLM catalog JSON file')
     parser.add_argument('-o', '--operator', required=True, help='Operator (package) name')
