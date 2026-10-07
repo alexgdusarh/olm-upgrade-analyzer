@@ -31,6 +31,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
@@ -223,7 +224,7 @@ def extract_packages(image: str, packages: List[str], authfile: str,
 
 
 def fetch_catalog(image: str, ocp: str, packages: List[str], dest_dir: Path,
-                  authfile: str, refresh: bool = False,
+                  authfile, refresh: bool = False,
                   os_filter: str = DEFAULT_OS, insecure: bool = False,
                   log=None) -> Dict:
     """
@@ -267,7 +268,9 @@ def _fetch_locked(ref, packages, data_path, pkgs_path, authfile, refresh,
 
     work = Path(tempfile.mkdtemp(prefix='olm-extract-'))
     try:
-        dirs = extract_packages(ref, packages, authfile, work,
+        # credentials are fetched only when something has to be pulled
+        auth = authfile() if callable(authfile) else authfile
+        dirs = extract_packages(ref, packages, auth, work,
                                 os_filter, insecure)
         channels, meta = [], {}
         for pkg in packages:
@@ -320,14 +323,23 @@ def fetch_all(groups: List[Dict], ocp_path: List[str], fetch_dir: str,
     if shutil.which('oc') is None:
         raise FetchError("'oc' is not on PATH; it is needed to pull catalogs")
 
-    tmp = None
+    tmp = []
+    lock = threading.Lock()
+    given = authfile
+
+    def credentials():
+        """The authfile, reading the pull secret only on the first pull."""
+        nonlocal authfile
+        with lock:
+            if not authfile:
+                tmp.append(tempfile.mkdtemp(prefix='olm-auth-'))
+                authfile = cluster_authfile(tmp[0])
+                log("Registry credentials: cluster pull secret")
+            return authfile
+
     try:
-        if not authfile:
-            tmp = tempfile.mkdtemp(prefix='olm-auth-')
-            authfile = cluster_authfile(tmp)
-            log("Registry credentials: cluster pull secret")
-        else:
-            log(f"Registry credentials: {authfile}")
+        if given:
+            log(f"Registry credentials: {given}")
 
         dirs = {}
         tasks = []
@@ -339,7 +351,7 @@ def fetch_all(groups: List[Dict], ocp_path: List[str], fetch_dir: str,
 
         def one(task):
             image, ocp, packages, dest = task
-            return fetch_catalog(image, ocp, packages, dest, authfile,
+            return fetch_catalog(image, ocp, packages, dest, credentials,
                                  refresh, os_filter, insecure, log)
 
         with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
@@ -350,5 +362,5 @@ def fetch_all(groups: List[Dict], ocp_path: List[str], fetch_dir: str,
                     log(f"  warning: {pkg} is not in {res['image']}")
         return dirs
     finally:
-        if tmp:
-            shutil.rmtree(tmp, ignore_errors=True)
+        for d in tmp:
+            shutil.rmtree(d, ignore_errors=True)

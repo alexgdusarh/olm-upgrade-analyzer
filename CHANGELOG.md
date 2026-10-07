@@ -187,6 +187,12 @@ catalogs a disconnected cluster must mirror.
   minimum): blocked when none of the possible releases covers the path,
   otherwise reported for confirmation with the upgrade each non-covering one
   would need.
+- The HTML reports follow PatternFly 6, like the ocp_preupgrade_health_check
+  report: OpenShift console masthead, Red Hat fonts, PatternFly status
+  colors and filled labels, cards and compact tables, light and dark mode.
+  The fonts are copied once into each cluster's `html/fonts/`.
+- Catalogs already pulled are reused without reading the cluster pull secret,
+  so a rerun needs no cluster login; credentials are read on the first pull.
 - Report graphs are deterministic: the SVG has fixed element ids and no
   timestamp, so rerunning on the same data leaves the reports unchanged.
 - An EUS path must start on an even minor, since EUS releases are the even
