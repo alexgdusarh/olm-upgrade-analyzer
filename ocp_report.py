@@ -165,72 +165,112 @@ def _phase_graph(catalog: Dict, pkg: str, phase: Dict) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 CSS = """
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-       background:#f5f5f5; margin:0; padding:20px; }
-.container { max-width:1400px; margin:0 auto; background:#fff; border-radius:12px;
-             box-shadow:0 2px 10px rgba(0,0,0,.1); padding:40px; }
-h1 { color:#333; margin:0 0 6px; }
-h2 { color:#333; font-size:18px; margin:0 0 16px; }
-.subtitle { color:#666; margin-bottom:26px; font-size:14px; }
-table.info { width:100%; border-collapse:collapse; margin-bottom:18px;
-             border-left:4px solid #667eea; background:#f9f9f9; }
-table.info td { padding:10px 15px; border-bottom:1px solid #e6e6e6; font-size:14px; color:#333; }
-table.info tr:last-child td { border-bottom:none; }
-table.info td.label { font-weight:600; color:#667eea; width:220px; }
-.badge { display:inline-block; padding:4px 11px; border-radius:20px; font-size:12px;
-         font-weight:600; color:#fff; background:#667eea; margin-right:6px; }
-.badge.ok { background:#4caf50; } .badge.warn { background:#f0a020; }
-.badge.bad { background:#e05252; } .badge.grey { background:#9e9e9e; }
-.phase { border:1px solid #e0e0e0; border-radius:8px; padding:24px; margin-bottom:26px;
-         background:#fcfcfc; }
-.phase-head { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
-.phase-num { background:#667eea; color:#fff; border-radius:50%; width:34px; height:34px;
-             display:flex; align-items:center; justify-content:center; font-weight:bold;
-             flex-shrink:0; }
-.graph { border:1px solid #ddd; border-radius:8px; background:#fafafa; padding:16px;
-         text-align:center; overflow-x:auto; margin-bottom:16px; }
-.graph svg { max-width:100%; height:auto; }
-.step { background:#f4f4f8; border-left:4px solid #667eea; padding:11px 14px;
-        border-radius:4px; margin-bottom:9px; font-size:14px; color:#333; }
-.none { color:#777; font-style:italic; font-size:14px; padding:8px 0; }
-.notes { background:#fff8e1; border-left:4px solid #f0a020; padding:16px;
-         border-radius:4px; margin-top:22px; }
-.notes h3 { margin:0 0 8px; color:#8a6100; font-size:15px; }
-.notes li { color:#8a6100; font-size:13.5px; margin-bottom:6px; }
-table.ops { width:100%; border-collapse:collapse; margin-top:10px; }
-table.ops th { text-align:left; padding:11px 14px; background:#667eea; color:#fff;
-               font-size:13px; }
-table.ops td { padding:11px 14px; border-bottom:1px solid #eee; font-size:14px; color:#333; }
-table.ops tr:hover td { background:#fafafa; }
-table.ops th { vertical-align:top; }
-.th-sub { font-weight:400; font-size:11px; opacity:.85; margin-top:3px; }
-.cell-sub { font-size:11.5px; color:#777; margin-top:3px; }
-.cell-ok { color:#4caf50; } .cell-bad { color:#e05252; }
-.cell-none { color:#bbb; text-align:center; }
-.cell-meta { color:#555; font-size:12.5px; }
-.cell-opt { color:#3f51b5; }
-.vendor-row td { background:#fafbff; padding:6px 14px 16px; }
-.vendor-box { border:1px solid #d6dbf5; border-radius:8px; padding:12px 14px;
-              background:#fff; }
-.vendor-head { font-size:14px; color:#333; margin-bottom:6px; }
-.vendor-advice { font-size:13px; color:#e05252; font-weight:600; margin:4px 0 8px; }
-table.vendor-table { width:100%; border-collapse:collapse; margin-top:6px; }
-table.vendor-table th { background:#eef0fb; color:#333; font-size:12px; text-align:left;
-                        padding:7px 10px; }
-table.vendor-table td { font-size:13px; padding:6px 10px; border-bottom:1px solid #eee; }
-table.vendor-table tr.vt-installed td { background:#f3f3f3; }
-table.vendor-table tr.vt-recommended td { background:#eef8ee; }
-.vt-ok { color:#2e7d32; } .vt-bad { color:#e05252; }
-.cell-vendor { font-size:11.5px; margin-top:5px; padding-top:4px;
-               border-top:1px dashed #ddd; }
-.cell-vendor.ok { color:#4caf50; } .cell-vendor.bad { color:#e05252; }
-.cell-vendor.warn { color:#8a6100; }
-.cell-warn { color:#8a6100; background:#fff8e1; font-size:12.5px; }
-.cell-rule { border:none; border-top:1px dashed #ddd; margin:8px 0; }
-.legend { font-size:13px; color:#666; background:#f7f7fa; border-left:3px solid #ccd;
-          padding:11px 14px; border-radius:4px; margin-bottom:14px; }
-a { color:#667eea; text-decoration:none; } a:hover { text-decoration:underline; }
-code { background:#eef; padding:1px 5px; border-radius:3px; font-size:13px; }
+  /* PatternFly 6 look (OpenShift console style), the same values as the
+     ocp_preupgrade_health_check report: hand-picked from the
+     @patternfly/patternfly 6.6.1 tokens rather than its ~2MB stylesheet.
+     The Red Hat fonts are served from html/fonts/; without them the stacks
+     fall back to system fonts. */
+  :root {
+    --font-body: "Red Hat Text", "RedHatText", Helvetica, Arial, sans-serif;
+    --font-heading: "Red Hat Display", "RedHatDisplay", Helvetica, Arial, sans-serif;
+    --font-mono: "Red Hat Mono", "RedHatMono", "Courier New", Courier, monospace;
+    --bg: #f2f2f2; --panel: #ffffff; --text: #151515; --muted: #4d4d4d;
+    --border: #c7c7c7; --border-subtle: #e0e0e0; --hover: rgba(199,199,199,.25);
+    --link: #0066cc; --brand: #0066cc; --masthead: #151515; --masthead-text: #ffffff; --accent: #ee0000;
+    --crit: #b1380b; --crit-bg: #ffe3d9; --crit-text: #731f00;
+    --warn: #dca614; --warn-bg: #fff4cc; --warn-text: #73480b;
+    --ok: #3d7317; --ok-bg: #e9f7df; --ok-text: #204d00;
+    --info: #5e40be; --info-bg: #ece6ff; --info-text: #3d2785;
+    --unknown-bg: #f2f2f2; --unknown-text: #4d4d4d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151515; --panel: #1f1f1f; --text: #ffffff; --muted: #c7c7c7;
+      --border: #4d4d4d; --border-subtle: #383838; --hover: rgba(199,199,199,.15);
+      --link: #92c5f9; --brand: #92c5f9; --masthead: #000000;
+      --crit: #f4784a; --crit-bg: #4c1405; --crit-text: #fbbea8;
+      --warn: #ffcc17; --warn-bg: #54330b; --warn-text: #ffe072;
+      --ok: #87bb62; --ok-bg: #183301; --ok-text: #d1f1bb;
+      --info: #b6a6e9; --info-bg: #21134d; --info-text: #d0c5f4;
+      --unknown-bg: #383838; --unknown-text: #e0e0e0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 14px; line-height: 1.5; }
+  a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
+  .masthead { background: var(--masthead); color: var(--masthead-text); border-top: 4px solid var(--accent); }
+  .masthead .inner { max-width: 1400px; margin: 0 auto; padding: 14px 24px; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
+  .masthead h1 { font-family: var(--font-heading); font-size: 1.25rem; font-weight: 500; margin: 0; }
+  .masthead .sub { color: #c7c7c7; font-size: .85rem; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px 24px 60px; }
+  h2 { font-family: var(--font-heading); font-size: 1.25rem; font-weight: 500; margin: 40px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
+  h3 { font-family: var(--font-heading); font-size: 1rem; font-weight: 500; margin: 0 0 8px; }
+  code, pre { font-family: var(--font-mono); font-size: .85rem; }
+  code { background: var(--bg); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 5px; }
+
+  /* card with label/value rows (PatternFly description list) */
+  table.info { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--panel); border: 1px solid var(--border-subtle); border-radius: 16px; margin-bottom: 16px; overflow: hidden; }
+  table.info td { padding: 9px 20px; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+  table.info tr:last-child td { border-bottom: none; }
+  table.info td.label { color: var(--muted); font-weight: 500; width: 240px; }
+
+  /* PatternFly filled label: pill, status tint, no border */
+  .badge { display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: .8rem; font-weight: 500; white-space: nowrap; margin: 1px 6px 1px 0; color: var(--info-text); background: var(--info-bg); }
+  .badge::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--info); }
+  .badge.ok { color: var(--ok-text); background: var(--ok-bg); } .badge.ok::before { background: var(--ok); }
+  .badge.warn { color: var(--warn-text); background: var(--warn-bg); } .badge.warn::before { background: var(--warn); }
+  .badge.bad { color: var(--crit-text); background: var(--crit-bg); } .badge.bad::before { background: var(--crit); }
+  .badge.grey { color: var(--unknown-text); background: var(--unknown-bg); } .badge.grey::before { background: var(--muted); }
+
+  /* phase card (per-operator report) */
+  .phase { background: var(--panel); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 20px 24px; margin-bottom: 20px; }
+  .phase .info { border-radius: 8px; }
+  .phase-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .phase-num { background: var(--brand); color: var(--panel); border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-family: var(--font-heading); font-weight: 600; flex-shrink: 0; }
+  .graph { background: #ffffff; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 16px; text-align: center; overflow-x: auto; margin-bottom: 14px; }
+  .graph svg { max-width: 100%; height: auto; }
+  .step { border-left: 3px solid var(--brand); background: var(--bg); padding: 8px 14px; border-radius: 0 6px 6px 0; margin-bottom: 8px; }
+  .none { color: var(--muted); font-style: italic; padding: 6px 0; }
+
+  /* PatternFly inline alert, warning variant */
+  .notes { background: var(--warn-bg); color: var(--warn-text); border-top: 2px solid var(--warn); border-radius: 0 0 8px 8px; padding: 14px 20px; margin-top: 20px; }
+  .notes h3 { margin: 0 0 6px; color: inherit; }
+  .notes ul { margin: 0; padding-left: 20px; } .notes li { margin-bottom: 4px; }
+
+  /* the summary matrix: compact table in a card */
+  .tblwrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border-subtle); border-radius: 16px; margin-top: 8px; }
+  table.ops { width: 100%; border-collapse: collapse; }
+  table.ops th { text-align: left; font-weight: 600; font-size: .85rem; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.ops td { padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+  table.ops tr:last-child td { border-bottom: none; }
+  table.ops tr:hover td { background: var(--hover); }
+  .th-sub { font-weight: 400; font-size: .75rem; color: var(--muted); margin-top: 2px; }
+  .cell-sub { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+  .cell-ok { color: var(--ok); font-weight: 500; } .cell-bad { color: var(--crit); font-weight: 500; }
+  .cell-none { color: var(--muted); text-align: center; }
+  .cell-meta { color: var(--muted); font-size: .85rem; }
+  .cell-opt { color: var(--link); }
+  table.ops td.cell-warn { background: var(--warn-bg); color: var(--warn-text); font-size: .85rem; }
+  table.ops td.cell-warn .cell-sub { color: var(--warn-text); }
+  .cell-vendor { font-size: .75rem; margin-top: 6px; padding-top: 4px; border-top: 1px dashed var(--border-subtle); }
+  .cell-vendor.ok { color: var(--ok); } .cell-vendor.bad { color: var(--crit); } .cell-vendor.warn { color: var(--warn-text); }
+  .cell-rule { border: none; border-top: 1px dashed var(--border-subtle); margin: 8px 0; }
+  .legend { color: var(--muted); font-size: .9rem; margin: 0 0 8px; }
+
+  /* vendor support matrix: a card under its operator's row */
+  table.ops tr.vendor-row td { background: var(--bg); padding: 4px 12px 16px; }
+  table.ops tr.vendor-row:hover td { background: var(--bg); }
+  .vendor-box { background: var(--panel); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 14px 18px; }
+  .vendor-head { margin-bottom: 4px; } .vendor-head strong { font-family: var(--font-heading); font-weight: 500; font-size: 1rem; }
+  .vendor-advice { color: var(--crit-text); background: var(--crit-bg); border-radius: 6px; padding: 6px 12px; font-weight: 500; margin: 6px 0 10px; }
+  table.vendor-table { width: 100%; border-collapse: collapse; }
+  table.vendor-table th { text-align: left; font-weight: 600; font-size: .8rem; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.vendor-table td { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
+  table.vendor-table tr:last-child td { border-bottom: none; }
+  table.vendor-table tr.vt-installed td { background: var(--unknown-bg); }
+  table.vendor-table tr.vt-recommended td { background: var(--ok-bg); }
+  .vt-ok { color: var(--ok); } .vt-bad { color: var(--crit); font-weight: 500; }
+  footer { margin-top: 48px; color: var(--muted); font-size: .8rem; text-align: center; }
 """
 
 
@@ -332,12 +372,50 @@ def _vendor_row(vendor: Optional[Dict]) -> str:
             f'<a href="{vendor["source"]}">support matrix</a></td></tr>')
 
 
-def _page(title: str, body: str) -> str:
+FONT_DIR = Path(__file__).resolve().parent / 'fonts'
+FONTS = (('Red Hat Display', 'RedHatDisplayVF.woff2'),
+         ('Red Hat Text', 'RedHatTextVF.woff2'),
+         ('Red Hat Mono', 'RedHatMonoVF.woff2'))
+
+
+def _install_fonts(html_dir: Path):
+    """
+    Copy the Red Hat fonts once into html/fonts/, shared by every page of
+    the cluster, so the reports keep their look offline. Unchanged files are
+    left alone; missing sources fall back to system fonts.
+    """
+    dest = html_dir / 'fonts'
+    for name in [f for _, f in FONTS] + ['OFL.txt']:
+        src = FONT_DIR / name
+        if not src.is_file():
+            continue
+        target = dest / name
+        if target.is_file() and target.read_bytes() == src.read_bytes():
+            continue
+        dest.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(src.read_bytes())
+
+
+def _font_faces(root: str) -> str:
+    return "".join(
+        f'@font-face {{ font-family: "{family}"; src: url({root}fonts/{name}) '
+        f'format("woff2"); font-weight: 300 900; font-style: normal; '
+        f'font-display: swap; }}\n'
+        for family, name in FONTS if (FONT_DIR / name).is_file())
+
+
+def _page(title: str, body: str, heading: str, sub: str,
+          root: str = '') -> str:
+    """A page with the PatternFly masthead; root leads back to html/."""
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title}</title><style>{CSS}</style></head>
-<body><div class="container">{body}</div></body></html>"""
+<title>{title}</title><style>{_font_faces(root)}{CSS}</style></head>
+<body>
+<header class="masthead"><div class="inner"><h1>{heading}</h1>
+<div class="sub">{sub}</div></div></header>
+<div class="container">{body}
+<footer>OLM operator upgrade path analyzer</footer></div></body></html>"""
 
 
 def _phase_html(catalog: Dict, pkg: str, phase: Dict) -> str:
@@ -428,10 +506,11 @@ def generate_operator_report(catalogs: Dict[str, Dict], result: Dict,
     total = sum(p['hops'] for p in result['phases'])
     inp = result['input']
 
-    header = f"""<h1>{pkg}</h1>
-<div class="subtitle">Operator upgrade plan for the {_cluster_label(cluster)}OCP
-{cluster['current']} &rarr; {cluster['target']} ({cluster['channel']}) cluster upgrade</div>
-<table class="info">
+    heading = pkg
+    sub = (f"Operator upgrade plan &middot; {_cluster_label(cluster)}OCP "
+           f"{cluster['current']} &rarr; {cluster['target']} "
+           f"({cluster['channel']})")
+    header = f"""<table class="info">
   <tr><td class="label">Verdict</td><td>{badge}{pinned}</td></tr>
   <tr><td class="label">Cluster path</td><td>{' &rarr; '.join(cluster.get('upgrade_path') or ocp_path)}</td></tr>
   <tr><td class="label">Catalog image</td><td><code>{result.get('catalog_image', '')}</code></td></tr>
@@ -465,7 +544,9 @@ def generate_operator_report(catalogs: Dict[str, Dict], result: Dict,
     out = Path(output_dir) / 'html' / pkg
     out.mkdir(parents=True, exist_ok=True)
     path = out / 'index.html'
-    path.write_text(_page(f"{pkg} - upgrade plan", body))
+    _install_fonts(Path(output_dir) / 'html')
+    path.write_text(_page(f"{pkg} - upgrade plan", body, heading, sub,
+                          root='../'))
     return str(path)
 
 
@@ -513,11 +594,11 @@ def generate_summary_report(plan: Dict, output_dir: str) -> str:
                 + "".join(f'<span class="badge {cls}">{n}</span>' for n in names)
                 + '</td></tr>')
 
-    body = f"""<h1>Cluster Operator Upgrade Plan{
-        f' &mdash; {cluster["name"]}' if cluster.get('name') else ''}</h1>
-<div class="subtitle">OCP {cluster['current']} &rarr; {cluster['target']}
-({cluster['channel']} channel)</div>
-<table class="info">
+    heading = ("Cluster Operator Upgrade Plan"
+               + (f" &mdash; {cluster['name']}" if cluster.get('name') else ''))
+    sub = (f"OCP {cluster['current']} &rarr; {cluster['target']} "
+           f"({cluster['channel']} channel)")
+    body = f"""<table class="info">
   <tr><td class="label">Overall verdict</td><td>{badge}</td></tr>
   <tr><td class="label">Cluster path</td><td>{' &rarr; '.join(cluster.get('upgrade_path') or ocp_path)}</td></tr>
   <tr><td class="label">Operators analysed</td><td>{len(plan['operators'])}</td></tr>
@@ -533,18 +614,19 @@ it is covered when that catalog still ships the installed version, or has a
 skipRange, replaces or skips edge from it. Only when it is not covered does an
 earlier catalog appear, working backwards from the target, and that catalog
 must be mirrored and deployed too.</div>
-<table class="ops">
+<div class="tblwrap"><table class="ops">
   <tr><th>Operator</th><th>Installed</th><th>Verdict</th>{head}</tr>
   {rows}
-</table>"""
+</table></div>"""
 
     body += _mirror_html(plan)
 
     out = Path(output_dir) / 'html'
     out.mkdir(parents=True, exist_ok=True)
     path = out / 'index.html'
+    _install_fonts(out)
     path.write_text(_page(cluster.get('name') or "Cluster Operator Upgrade Plan",
-                          body))
+                          body, heading, sub))
     return str(path)
 
 

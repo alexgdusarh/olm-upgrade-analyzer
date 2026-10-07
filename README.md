@@ -340,6 +340,15 @@ output/
     ...
 ```
 
+The reports use the same PatternFly 6 look as the ocp_preupgrade_health_check
+report (OpenShift console style, light and dark mode): a dark masthead with
+the red accent, Red Hat Display/Text/Mono fonts, filled status labels, cards
+and compact tables. The values are hand-picked from the @patternfly/patternfly
+6.6.1 tokens instead of loading its ~2MB stylesheet. The fonts (`fonts/`, SIL
+OFL 1.1) are copied once into each cluster's `html/fonts/` and shared by its
+pages, so a cluster's `html/` folder keeps the look offline; without them the
+pages fall back to system fonts.
+
 The cluster summary has one column per catalog and lists the catalogs to
 mirror. A column an operator is not upgraded from validates the bundle it is
 on by then, in this order:
@@ -474,6 +483,7 @@ ocp_report.py             HTML reports
 catalog_fetch.py          pulls catalogs from catalog index images
 mirror_plan.py            catalog mirroring check and oc-mirror configuration
 vendor_constraints.py     vendor support matrices
+fonts/                    Red Hat fonts for the reports (SIL OFL 1.1)
 constraints/vendor-support.json  Portworx Enterprise support matrix
 operator_interactive.py   single-catalog analyzer
 examples/catalog_mirror_check.json  input template
